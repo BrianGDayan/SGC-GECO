@@ -6,9 +6,9 @@ import { Progress } from "@/components/ui/progress";
 const processes = [
   {
     id: 1,
-    name: "Gestión de la Dirección",
+    name: "Gestión Empresarial",
     code: "PD",
-    owner: "Director General",
+    owner: "Gerente Comercial, Gerente Financiero",
     documents: 12,
     indicators: 4,
     compliance: 95,
@@ -16,23 +16,23 @@ const processes = [
   },
   {
     id: 2,
-    name: "Gestión Comercial",
+    name: "Gestión de competencias",
     code: "GC",
-    owner: "Gerente Comercial",
+    owner: "Responsable de Recursos Humanos",
     documents: 18,
     indicators: 6,
     compliance: 88,
-    subprocesses: ["Ventas", "Atención al Cliente", "Gestión de Contratos"],
+    subprocesses: ["Gestión de la polivalencia", "Detección de necesidades de capacitación", "Ejecución de la capacitación"],
   },
   {
     id: 3,
-    name: "Producción",
+    name: "Logística",
     code: "PR",
-    owner: "Jefe de Producción",
+    owner: "Responsable de compras, Responsable de Taller y Logística",
     documents: 35,
     indicators: 8,
     compliance: 92,
-    subprocesses: ["Planificación", "Fabricación", "Control de Calidad"],
+    subprocesses: ["Retiro de la compra", "Traslado", "Entrega"],
   },
   {
     id: 4,
@@ -48,7 +48,7 @@ const processes = [
     id: 5,
     name: "Recursos Humanos",
     code: "RH",
-    owner: "Gerente de RRHH",
+    owner: "Responsable de RRHH",
     documents: 22,
     indicators: 5,
     compliance: 85,
@@ -58,11 +58,11 @@ const processes = [
     id: 6,
     name: "Compras",
     code: "CO",
-    owner: "Jefe de Compras",
+    owner: "Responsable de Compras",
     documents: 15,
     indicators: 4,
     compliance: 90,
-    subprocesses: ["Evaluación de Proveedores", "Gestión de Pedidos"],
+    subprocesses: ["Evaluación de Proveedores", "Generación de la Orden de Compra y comunicación al proveedor", "Retiro de bienes", "Carga de factura y Pago del proveedor"],
   },
 ];
 
@@ -89,8 +89,9 @@ const Procesos = () => {
           <div className="rounded-lg bg-primary/5 p-4">
             <h4 className="mb-3 text-sm font-medium text-primary">Procesos Estratégicos</h4>
             <div className="space-y-2">
-              <div className="rounded bg-card p-2 text-sm shadow-sm">Gestión de la Dirección</div>
-              <div className="rounded bg-card p-2 text-sm shadow-sm">Planificación Estratégica</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Sistema de Gestión de la Calidad</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Atención al cliente</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Gestión Empresarial</div>
             </div>
           </div>
           
@@ -98,9 +99,12 @@ const Procesos = () => {
           <div className="rounded-lg bg-secondary/10 p-4">
             <h4 className="mb-3 text-sm font-medium text-secondary">Procesos Operativos</h4>
             <div className="space-y-2">
-              <div className="rounded bg-card p-2 text-sm shadow-sm">Gestión Comercial</div>
-              <div className="rounded bg-card p-2 text-sm shadow-sm">Producción</div>
-              <div className="rounded bg-card p-2 text-sm shadow-sm">Entrega</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Planificación</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Ejecución</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Pre Entrega</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Control de calidad</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Entrega Final</div>
+              
             </div>
           </div>
           
@@ -108,9 +112,12 @@ const Procesos = () => {
           <div className="rounded-lg bg-accent/10 p-4">
             <h4 className="mb-3 text-sm font-medium text-accent">Procesos de Apoyo</h4>
             <div className="space-y-2">
-              <div className="rounded bg-card p-2 text-sm shadow-sm">Recursos Humanos</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Gestión de competencias</div>
               <div className="rounded bg-card p-2 text-sm shadow-sm">Compras</div>
-              <div className="rounded bg-card p-2 text-sm shadow-sm">Gestión de Calidad</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Comunicacion</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Gestión de proveedores</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Logística</div>
+              <div className="rounded bg-card p-2 text-sm shadow-sm">Pago a proveedores</div>
             </div>
           </div>
         </div>

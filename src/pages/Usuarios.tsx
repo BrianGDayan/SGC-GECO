@@ -21,8 +21,8 @@ import {
 const users = [
   {
     id: 1,
-    name: "Ana García",
-    email: "ana.garcia@empresa.com",
+    name: "Brian Dayan",
+    email: "briang674@gmail.com",
     role: "Administrador",
     department: "Calidad",
     status: "activo",
@@ -31,8 +31,8 @@ const users = [
   },
   {
     id: 2,
-    name: "Carlos López",
-    email: "carlos.lopez@empresa.com",
+    name: "Josefina Singh",
+    email: "singhjosefina@gmail.com",
     role: "Auditor",
     department: "Calidad",
     status: "activo",
@@ -41,33 +41,13 @@ const users = [
   },
   {
     id: 3,
-    name: "María Rodríguez",
-    email: "maria.rodriguez@empresa.com",
+    name: "Cristian Ramos",
+    email: "calidadisogeco@gmail.com",
     role: "Editor",
-    department: "Producción",
+    department: "Sistemas",
     status: "activo",
     lastAccess: "Hace 2 horas",
     permissions: ["documentos", "indicadores"],
-  },
-  {
-    id: 4,
-    name: "Pedro Sánchez",
-    email: "pedro.sanchez@empresa.com",
-    role: "Colaborador",
-    department: "Recursos Humanos",
-    status: "activo",
-    lastAccess: "Ayer",
-    permissions: ["documentos"],
-  },
-  {
-    id: 5,
-    name: "Laura Martínez",
-    email: "laura.martinez@empresa.com",
-    role: "Colaborador",
-    department: "Comercial",
-    status: "inactivo",
-    lastAccess: "Hace 1 semana",
-    permissions: ["documentos"],
   },
 ];
 
