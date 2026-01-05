@@ -1,124 +1,129 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { 
-  FileText, 
-  Upload, 
-  Search, 
-  Filter, 
-  Download, 
-  Eye, 
-  Edit, 
-  Trash2,
-  FolderOpen,
-  Plus
+  FileText, Upload, Search, Download, Eye, Edit, Trash2, FolderOpen
 } from "lucide-react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 
 const categories = [
-  { id: "manual", name: "Manual de Calidad", count: 5 },
-  { id: "procedimiento", name: "Procedimientos", count: 28 },
-  { id: "instruccion", name: "Instrucciones de Trabajo", count: 45 },
-  { id: "registro", name: "Registros", count: 62 },
-  { id: "politica", name: "Políticas", count: 8 },
-  { id: "formato", name: "Formatos", count: 35 },
-];
-
-const documents = [
-  {
-    id: 1,
-    code: "MC-001",
-    name: "Manual de Calidad v3.2",
-    category: "Manual de Calidad",
-    version: "3.2",
-    updatedAt: "2025-01-15",
-    updatedBy: "Ana García",
-    status: "vigente",
-  },
-  {
-    id: 2,
-    code: "PR-001",
-    name: "Procedimiento de Auditorías Internas",
-    category: "Procedimientos",
-    version: "2.1",
-    updatedAt: "2025-01-10",
-    updatedBy: "Carlos López",
-    status: "vigente",
-  },
-  {
-    id: 3,
-    code: "PR-002",
-    name: "Procedimiento de Control de Documentos",
-    category: "Procedimientos",
-    version: "1.5",
-    updatedAt: "2025-01-08",
-    updatedBy: "María Rodríguez",
-    status: "revisión",
-  },
-  {
-    id: 4,
-    code: "RG-001",
-    name: "Registro de No Conformidades",
-    category: "Registros",
-    version: "1.0",
-    updatedAt: "2025-01-05",
-    updatedBy: "Pedro Sánchez",
-    status: "vigente",
-  },
-  {
-    id: 5,
-    code: "PL-001",
-    name: "Política de Calidad 2025",
-    category: "Políticas",
-    version: "1.0",
-    updatedAt: "2025-01-01",
-    updatedBy: "Director General",
-    status: "vigente",
-  },
-  {
-    id: 6,
-    code: "IT-001",
-    name: "Instrucción de Trabajo - Calibración",
-    category: "Instrucciones de Trabajo",
-    version: "2.0",
-    updatedAt: "2024-12-20",
-    updatedBy: "Luis Martínez",
-    status: "borrador",
-  },
+  { id: "manual", name: "Manual" },
+  { id: "procedimiento_general", name: "Procedimiento General" },
+  { id: "procedimiento_operativo", name: "Procedimiento Operativo" },
+  { id: "registro", name: "Registro" },
+  { id: "documento", name: "Documento" },
+  { id: "documento_externo", name: "Documento Externo" },
+  { id: "instructivo", name: "Instructivo" },
 ];
 
 const statusStyles = {
   vigente: "bg-success/10 text-success border-success/20",
-  revisión: "bg-warning/10 text-warning border-warning/20",
-  borrador: "bg-muted text-muted-foreground border-border",
-  obsoleto: "bg-destructive/10 text-destructive border-destructive/20",
+  "en revision": "bg-warning/10 text-warning border-warning/20",
+  "en aprobacion": "bg-primary/10 text-primary border-primary/20",
+  "no aprobado": "bg-destructive/10 text-destructive border-destructive/20",
 };
 
 const Documentos = () => {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isUploadOpen, setIsUploadOpen] = useState(false);
 
-  const filteredDocs = documents.filter(doc => {
-    const matchesCategory = !selectedCategory || doc.category.toLowerCase().includes(selectedCategory);
+  // Estados del formulario
+  const [formRevision, setFormRevision] = useState<number>(0);
+  const [formName, setFormName] = useState("");
+  const [formCategory, setFormCategory] = useState<string>("");
+  const [formStatus, setFormStatus] = useState<string>("en revision");
+  const [formDescription, setFormDescription] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const { data: documents = [], isLoading } = useQuery({
+    queryKey: ["documents"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("documents" as any)
+        .select(`*, profiles(full_name)`)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      return data.map((doc: any) => ({
+        code: doc.code,
+        name: doc.title,
+        description: doc.description,
+        category: doc.category,
+        revision: doc.revision,
+        updatedAt: new Date(doc.updated_at).toLocaleDateString(),
+        updatedBy: doc.profiles?.full_name || "Sistema",
+        status: doc.status || "en revision",
+        fileUrl: doc.file_url
+      }));
+    },
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedFile || !user || !formCategory) throw new Error("Faltan campos requeridos");
+
+      const fileExt = selectedFile.name.split('.').pop();
+      const fileName = `${crypto.randomUUID()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(fileName, selectedFile);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('documents')
+        .getPublicUrl(fileName);
+
+      const { error: insertError } = await supabase
+        .from("documents" as any)
+        .insert({
+          title: formName,
+          description: formDescription,
+          category: formCategory,
+          revision: formRevision,
+          file_url: publicUrl,
+          file_name: selectedFile.name,
+          uploaded_by: user.id,
+          status: formStatus
+        });
+
+      if (insertError) throw insertError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      toast.success("Operación exitosa");
+      setIsUploadOpen(false);
+      resetForm();
+    },
+    onError: (error: any) => toast.error(error.message)
+  });
+
+  const resetForm = () => {
+    setFormRevision(0);
+    setFormName("");
+    setFormCategory("");
+    setFormStatus("en revision");
+    setFormDescription("");
+    setSelectedFile(null);
+  };
+
+  const filteredDocs = documents.filter((doc: any) => {
+    const matchesCategory = !selectedCategory || doc.category === selectedCategory;
     const matchesSearch = !searchQuery || 
       doc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       doc.code.toLowerCase().includes(searchQuery.toLowerCase());
@@ -128,39 +133,32 @@ const Documentos = () => {
   return (
     <MainLayout title="Documentos" subtitle="Gestión documental del Sistema de Calidad">
       <div className="flex gap-6">
-        {/* Sidebar - Categories */}
         <aside className="w-64 shrink-0">
           <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
             <h3 className="mb-4 font-semibold text-foreground">Categorías</h3>
             <div className="space-y-1">
               <button
                 onClick={() => setSelectedCategory(null)}
-                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
-                  !selectedCategory ? "bg-primary/10 text-primary" : "hover:bg-muted"
-                }`}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${!selectedCategory ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}
               >
                 <div className="flex items-center gap-2">
                   <FolderOpen className="h-4 w-4" />
                   <span>Todos</span>
                 </div>
-                <Badge variant="secondary" className="text-xs">
-                  {documents.length}
-                </Badge>
+                <Badge variant="secondary" className="text-xs">{documents.length}</Badge>
               </button>
               {categories.map((cat) => (
                 <button
                   key={cat.id}
                   onClick={() => setSelectedCategory(cat.id)}
-                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
-                    selectedCategory === cat.id ? "bg-primary/10 text-primary" : "hover:bg-muted"
-                  }`}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${selectedCategory === cat.id ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}
                 >
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4" />
                     <span>{cat.name}</span>
                   </div>
                   <Badge variant="secondary" className="text-xs">
-                    {cat.count}
+                    {documents.filter((d: any) => d.category === cat.id).length}
                   </Badge>
                 </button>
               ))}
@@ -168,9 +166,7 @@ const Documentos = () => {
           </div>
         </aside>
 
-        {/* Main Content */}
         <div className="flex-1">
-          {/* Toolbar */}
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="relative">
@@ -182,17 +178,6 @@ const Documentos = () => {
                   className="w-80 pl-9"
                 />
               </div>
-              <Select>
-                <SelectTrigger className="w-40">
-                  <SelectValue placeholder="Estado" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="vigente">Vigente</SelectItem>
-                  <SelectItem value="revision">En revisión</SelectItem>
-                  <SelectItem value="borrador">Borrador</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
 
             <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
@@ -202,63 +187,75 @@ const Documentos = () => {
                   Subir Documento
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-lg">
+              <DialogContent className="sm:max-w-lg w-[95vw] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Subir Nuevo Documento</DialogTitle>
-                  <DialogDescription>
-                    Complete la información del documento y adjunte el archivo.
-                  </DialogDescription>
+                  <DialogDescription>Complete la información del documento.</DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="code">Código</Label>
-                      <Input id="code" placeholder="Ej: PR-003" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="version">Versión</Label>
-                      <Input id="version" placeholder="Ej: 1.0" />
-                    </div>
-                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="name">Nombre del Documento</Label>
-                    <Input id="name" placeholder="Nombre descriptivo del documento" />
+                    <Input id="name" value={formName} onChange={(e) => setFormName(e.target.value)} />
                   </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Categoría</Label>
+                      <Select value={formCategory} onValueChange={setFormCategory}>
+                        <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                        <SelectContent>
+                          {categories.map((cat) => (
+                            <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Estado</Label>
+                      <Select value={formStatus} onValueChange={setFormStatus}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {Object.keys(statusStyles).map(s => (
+                            <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="category">Categoría</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar categoría" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categories.map((cat) => (
-                          <SelectItem key={cat.id} value={cat.id}>
-                            {cat.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="revision">Revisión</Label>
+                    <Input 
+                      id="revision" 
+                      type="number" 
+                      step="1" 
+                      value={formRevision} 
+                      onChange={(e) => setFormRevision(parseInt(e.target.value) || 0)} 
+                    />
                   </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="description">Descripción</Label>
-                    <Textarea id="description" placeholder="Descripción breve del documento" />
+                    <Textarea id="description" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} />
                   </div>
+
                   <div className="space-y-2">
                     <Label>Archivo</Label>
-                    <div className="rounded-lg border-2 border-dashed border-border p-8 text-center transition-colors hover:border-primary/50">
+                    <input type="file" className="hidden" ref={fileInputRef} onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} />
+                    <div 
+                      onClick={() => fileInputRef.current?.click()}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); setSelectedFile(e.dataTransfer.files[0]); }}
+                      className={`rounded-lg border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${selectedFile ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}
+                    >
                       <Upload className="mx-auto h-8 w-8 text-muted-foreground" />
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Arrastra un archivo aquí o haz clic para seleccionar
-                      </p>
-                      <p className="text-xs text-muted-foreground">PDF, DOC, DOCX, XLS hasta 10MB</p>
+                      <p className="mt-2 text-sm">{selectedFile ? selectedFile.name : "Haz clic o arrastra un archivo aquí"}</p>
                     </div>
                   </div>
                 </div>
                 <div className="flex justify-end gap-3">
-                  <Button variant="outline" onClick={() => setIsUploadOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button onClick={() => setIsUploadOpen(false)}>
+                  <Button variant="outline" onClick={() => setIsUploadOpen(false)}>Cancelar</Button>
+                  <Button onClick={() => uploadMutation.mutate()} disabled={uploadMutation.isPending || !selectedFile || !formCategory}>
                     Subir Documento
                   </Button>
                 </div>
@@ -266,61 +263,49 @@ const Documentos = () => {
             </Dialog>
           </div>
 
-          {/* Documents Table */}
           <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
             <table className="w-full">
               <thead className="border-b border-border bg-muted/50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Código</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Nombre</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Categoría</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Versión</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Actualizado</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Estado</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-muted-foreground">Acciones</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Código</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Nombre</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Categoría</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Descripción</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Rev.</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Actualizado</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Estado</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredDocs.map((doc) => (
-                  <tr key={doc.id} className="transition-colors hover:bg-muted/30">
-                    <td className="px-4 py-3">
-                      <span className="font-mono text-sm font-medium text-primary">{doc.code}</span>
+                {isLoading ? (
+                  <tr><td colSpan={8} className="text-center py-8">Cargando...</td></tr>
+                ) : filteredDocs.map((doc: any) => (
+                  <tr key={doc.code} className="transition-colors hover:bg-muted/30">
+                    <td className="px-4 py-3 font-mono text-sm font-medium text-primary">{doc.code}</td>
+                    <td className="px-4 py-3 font-medium">{doc.name}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                      {categories.find(c => c.id === doc.category)?.name || doc.category}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground max-w-[200px] truncate">
+                      {doc.description || "-"}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{doc.revision}</td>
+                    <td className="px-4 py-3 text-sm">
+                      <p className="text-foreground">{doc.updatedAt}</p>
+                      <p className="text-muted-foreground text-xs">{doc.updatedBy}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded bg-primary/10">
-                          <FileText className="h-4 w-4 text-primary" />
-                        </div>
-                        <span className="font-medium text-foreground">{doc.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">{doc.category}</td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">v{doc.version}</td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm">
-                        <p className="text-foreground">{doc.updatedAt}</p>
-                        <p className="text-muted-foreground">{doc.updatedBy}</p>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline" className={statusStyles[doc.status as keyof typeof statusStyles]}>
+                      <Badge variant="outline" className={statusStyles[doc.status as keyof typeof statusStyles] || statusStyles["en revision"]}>
                         {doc.status}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <Eye className="h-4 w-4" />
+                        <Button variant="ghost" size="icon" asChild>
+                          <a href={doc.fileUrl} target="_blank" rel="noreferrer"><Eye className="h-4 w-4" /></a>
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <Button variant="ghost" size="icon" className="text-destructive"><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </td>
                   </tr>

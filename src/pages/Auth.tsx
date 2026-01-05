@@ -95,8 +95,8 @@ const Auth = () => {
           }
         } else {
           toast({
-            title: "¡Cuenta creada!",
-            description: "Tu cuenta ha sido creada. Ahora puedes iniciar sesión.",
+            title: "Cuenta creada",
+            description: "Se ha enviado un correo electrónico a la dirección proporcionada. Accede a tu correo para confirmar el registro",
           });
           navigate("/");
         }

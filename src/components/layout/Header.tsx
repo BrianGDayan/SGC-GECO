@@ -26,7 +26,7 @@ const roleLabels: Record<string, string> = {
 
 const Header = ({ title, subtitle }: HeaderProps) => {
   const { profile, roles, signOut } = useAuth();
-
+  console.log("Auth Data:", { profile, roles });
   return (
     <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-border bg-card/80 backdrop-blur-sm px-8">
       <div>
