@@ -30,7 +30,7 @@ const Sidebar = () => {
         {/* Logo */}
         <div className="flex h-20 items-center gap-3 px-6 border-b border-sidebar-border">
           <div className="flex h-13 w-13 items-center justify-center rounded-lg">
-            <img src="../../../public/logo.png"></img>
+           <img src="/logo.png" alt="Logo de la empresa" />
           </div>
           <div>
             <p className="text-xs text-sidebar-foreground/60">Sistema de Gestión de Calidad</p>

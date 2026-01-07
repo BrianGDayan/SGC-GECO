@@ -121,7 +121,7 @@ const Auth = () => {
         <div className="mx-auto max-w-md text-white">
           <div className="mb-8 flex items-center gap-3">
             <div className="flex h-25 w-25 items-center justify-center rounded-xl">
-              <img src="../../../public/logo.png"></img>
+              <img src="/logo.png" alt="Logo de la empresa" />
             </div>
           </div>
           <h1 className="mb-4 text-4xl font-bold leading-tight">
