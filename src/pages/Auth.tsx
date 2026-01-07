@@ -120,10 +120,9 @@ const Auth = () => {
       <div className="hidden w-1/2 bg-gradient-to-br from-primary via-primary/90 to-secondary lg:flex lg:flex-col lg:justify-center lg:p-12">
         <div className="mx-auto max-w-md text-white">
           <div className="mb-8 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
-              <Shield className="h-7 w-7" />
+            <div className="flex h-25 w-25 items-center justify-center rounded-xl">
+              <img src="../../../public/logo.png"></img>
             </div>
-            <span className="text-2xl font-bold">ISO 9001</span>
           </div>
           <h1 className="mb-4 text-4xl font-bold leading-tight">
             Sistema de Gestión de Calidad

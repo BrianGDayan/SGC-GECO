@@ -29,12 +29,11 @@ const Sidebar = () => {
       <div className="flex h-full flex-col">
         {/* Logo */}
         <div className="flex h-20 items-center gap-3 px-6 border-b border-sidebar-border">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg gradient-primary">
-            <Shield className="h-6 w-6 text-primary-foreground" />
+          <div className="flex h-13 w-13 items-center justify-center rounded-lg">
+            <img src="../../../public/logo.png"></img>
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-sidebar-foreground">ISO 9001</h1>
-            <p className="text-xs text-sidebar-foreground/60">Sistema de Gestión</p>
+            <p className="text-xs text-sidebar-foreground/60">Sistema de Gestión de Calidad</p>
           </div>
         </div>
 
