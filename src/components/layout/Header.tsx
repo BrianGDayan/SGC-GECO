@@ -17,16 +17,16 @@ interface HeaderProps {
   subtitle?: string;
 }
 
+// Actualizado a los nuevos roles binarios
 const roleLabels: Record<string, string> = {
-  admin: "Administrador",
-  auditor: "Auditor",
-  editor: "Editor",
-  colaborador: "Colaborador",
+  editor: "Editor / Admin",
+  lector: "Lector",
 };
 
 const Header = ({ title, subtitle }: HeaderProps) => {
-  const { profile, roles, signOut } = useAuth();
-  console.log("Auth Data:", { profile, roles });
+  // Cambiamos 'profile' y 'roles' por 'userData'
+  const { userData, signOut } = useAuth();
+
   return (
     <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-border bg-card/80 backdrop-blur-sm px-8">
       <div>
@@ -65,17 +65,19 @@ const Header = ({ title, subtitle }: HeaderProps) => {
             <DropdownMenuLabel>
               <div className="flex flex-col space-y-1">
                 <p className="text-sm font-medium">
-                  {profile?.full_name || "Usuario"}
+                  {userData?.full_name || "Usuario"}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {profile?.email}
+                  {userData?.email}
                 </p>
+                
+                {/* Reemplazo del .map() por una Badge única para el rol string */}
                 <div className="flex flex-wrap gap-1 pt-1">
-                  {roles.map((role) => (
-                    <Badge key={role} variant="secondary" className="text-xs">
-                      {roleLabels[role] || role}
+                  {userData?.role && (
+                    <Badge variant="secondary" className="text-xs bg-primary/10 text-primary border-primary/20">
+                      {roleLabels[userData.role] || userData.role}
                     </Badge>
-                  ))}
+                  )}
                 </div>
               </div>
             </DropdownMenuLabel>

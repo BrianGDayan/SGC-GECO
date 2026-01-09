@@ -31,74 +31,43 @@ const Auth = () => {
 
   const validateForm = (): boolean => {
     const newErrors: { email?: string; password?: string } = {};
-    
     const emailResult = emailSchema.safeParse(email);
-    if (!emailResult.success) {
-      newErrors.email = emailResult.error.errors[0].message;
-    }
-
+    if (!emailResult.success) newErrors.email = emailResult.error.errors[0].message;
     const passwordResult = passwordSchema.safeParse(password);
-    if (!passwordResult.success) {
-      newErrors.password = passwordResult.error.errors[0].message;
-    }
-
+    if (!passwordResult.success) newErrors.password = passwordResult.error.errors[0].message;
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!validateForm()) return;
-    
     setIsLoading(true);
 
     try {
       if (isLogin) {
         const { error } = await signIn(email, password);
         if (error) {
-          if (error.message.includes("Invalid login credentials")) {
-            toast({
-              title: "Error de autenticación",
-              description: "Email o contraseña incorrectos",
-              variant: "destructive",
-            });
-          } else {
-            toast({
-              title: "Error",
-              description: error.message,
-              variant: "destructive",
-            });
-          }
-        } else {
           toast({
-            title: "¡Bienvenido!",
-            description: "Has iniciado sesión correctamente",
+            title: "Error de autenticación",
+            description: error.message.includes("Invalid login credentials") ? "Email o contraseña incorrectos" : error.message,
+            variant: "destructive",
           });
-          navigate("/");
         }
       } else {
         const { error } = await signUp(email, password, fullName);
         if (error) {
-          if (error.message.includes("User already registered")) {
-            toast({
-              title: "Usuario existente",
-              description: "Este email ya está registrado. Intenta iniciar sesión.",
-              variant: "destructive",
-            });
-          } else {
-            toast({
-              title: "Error",
-              description: error.message,
-              variant: "destructive",
-            });
-          }
+          toast({
+            title: "Error",
+            description: error.message,
+            variant: "destructive",
+          });
         } else {
           toast({
             title: "Cuenta creada",
-            description: "Se ha enviado un correo electrónico a la dirección proporcionada. Accede a tu correo para confirmar el registro",
+            description: "Se ha enviado un correo de confirmación.",
           });
-          navigate("/");
+          setIsLogin(true);
         }
       }
     } finally {
@@ -133,21 +102,15 @@ const Auth = () => {
           </p>
           <div className="mt-12 space-y-4">
             <div className="flex items-center gap-3 text-white/90">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
-                ✓
-              </div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">✓</div>
               <span>Control documental centralizado</span>
             </div>
             <div className="flex items-center gap-3 text-white/90">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
-                ✓
-              </div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">✓</div>
               <span>Seguimiento de indicadores en tiempo real</span>
             </div>
             <div className="flex items-center gap-3 text-white/90">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
-                ✓
-              </div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">✓</div>
               <span>Gestión de auditorías y hallazgos</span>
             </div>
           </div>
@@ -157,22 +120,12 @@ const Auth = () => {
       {/* Right Panel - Auth Form */}
       <div className="flex w-full items-center justify-center p-8 lg:w-1/2">
         <div className="w-full max-w-md">
-          {/* Mobile Logo */}
-          <div className="mb-8 flex items-center justify-center gap-3 lg:hidden">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-white">
-              <Shield className="h-5 w-5" />
-            </div>
-            <span className="text-xl font-bold text-primary">ISO 9001</span>
-          </div>
-
           <div className="text-center">
             <h2 className="text-2xl font-bold text-foreground">
               {isLogin ? "Iniciar Sesión" : "Crear Cuenta"}
             </h2>
             <p className="mt-2 text-muted-foreground">
-              {isLogin
-                ? "Ingresa tus credenciales para acceder"
-                : "Completa los datos para registrarte"}
+              {isLogin ? "Ingresa tus credenciales para acceder" : "Completa los datos para registrarte"}
             </p>
           </div>
 
@@ -189,6 +142,7 @@ const Auth = () => {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     className="pl-10"
+                    required
                   />
                 </div>
               </div>
@@ -208,11 +162,10 @@ const Auth = () => {
                     setErrors((prev) => ({ ...prev, email: undefined }));
                   }}
                   className={`pl-10 ${errors.email ? "border-destructive" : ""}`}
+                  required
                 />
               </div>
-              {errors.email && (
-                <p className="text-sm text-destructive">{errors.email}</p>
-              )}
+              {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
             </div>
 
             <div className="space-y-2">
@@ -229,39 +182,24 @@ const Auth = () => {
                     setErrors((prev) => ({ ...prev, password: undefined }));
                   }}
                   className={`pl-10 ${errors.password ? "border-destructive" : ""}`}
+                  required
                 />
               </div>
-              {errors.password && (
-                <p className="text-sm text-destructive">{errors.password}</p>
-              )}
+              {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
             </div>
 
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {isLogin ? "Iniciando sesión..." : "Creando cuenta..."}
-                </>
-              ) : isLogin ? (
-                "Iniciar Sesión"
-              ) : (
-                "Crear Cuenta"
-              )}
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (isLogin ? "Iniciar Sesión" : "Crear Cuenta")}
             </Button>
           </form>
 
           <div className="mt-6 text-center">
             <button
               type="button"
-              onClick={() => {
-                setIsLogin(!isLogin);
-                setErrors({});
-              }}
+              onClick={() => { setIsLogin(!isLogin); setErrors({}); }}
               className="text-sm text-primary hover:underline"
             >
-              {isLogin
-                ? "¿No tienes cuenta? Regístrate"
-                : "¿Ya tienes cuenta? Inicia sesión"}
+              {isLogin ? "¿No tienes cuenta? Regístrate" : "¿Ya tienes cuenta? Inicia sesión"}
             </button>
           </div>
         </div>
