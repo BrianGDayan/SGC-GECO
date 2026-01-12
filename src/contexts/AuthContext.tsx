@@ -19,7 +19,7 @@ interface AuthContextType {
   userData: SgcUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
-  signUp: (email: string, password: string, fullName?: string) => Promise<{ error: any }>;
+  signUp: (email: string, password: string, fullName?: string) => Promise<{ data: any, error: any }>;
   signOut: () => Promise<void>;
   isEditor: boolean;
 }
@@ -32,38 +32,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userData, setUserData] = useState<SgcUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchUserData = async (authId: string) => {
-    try {
-      const { data, error } = await (supabase
+  const fetchUserData = async (auth_id: string) => {
+  try {
+    const { data, error } = await supabase
+      .from("users" as any)
+      .select("*")
+      .eq("auth_id", auth_id)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (data) {
+      // FIX: Doble casteo para evitar el error ts(2352)
+      setUserData(data as unknown as SgcUser);
+      
+      supabase
         .from("users" as any)
-        .select("*")
-        .eq("auth_id", authId)
-        .maybeSingle() as any);
-
-      if (error) throw error;
-
-      if (data) {
-        setUserData(data as SgcUser);
-        
-        // Actualizamos last_access en segundo plano
-        supabase
-          .from("users" as any)
-          .update({ last_access: new Date().toISOString() })
-          .eq("auth_id", authId)
-          .then();
-      } else {
-        // FIX: Si existe sesión en Supabase Auth pero NO hay registro en nuestra tabla,
-        // significa que la cuenta fue eliminada. Forzamos el logout para limpiar el localStorage.
-        console.warn("Usuario no encontrado en la DB. Cerrando sesión...");
-        signOut(); 
+        .update({ last_access: new Date().toISOString() })
+        .eq("auth_id", auth_id)
+        .then();
+    } else {
+      if (window.location.pathname !== "/auth") {
+        signOut();
       }
-    } catch (error) {
-      console.error("Error al obtener datos:", error);
     }
-  };
+  } catch (error) {
+    console.error("Error al obtener datos:", error);
+  }
+};
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) fetchUserData(session.user.id);
