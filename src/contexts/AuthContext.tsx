@@ -33,33 +33,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchUserData = async (auth_id: string) => {
-  try {
-    const { data, error } = await supabase
-      .from("users" as any)
-      .select("*")
-      .eq("auth_id", auth_id)
-      .maybeSingle();
-
-    if (error) throw error;
-
-    if (data) {
-      // FIX: Doble casteo para evitar el error ts(2352)
-      setUserData(data as unknown as SgcUser);
-      
-      supabase
+    try {
+      const { data, error } = await supabase
         .from("users" as any)
-        .update({ last_access: new Date().toISOString() })
+        .select("*")
         .eq("auth_id", auth_id)
-        .then();
-    } else {
-      if (window.location.pathname !== "/auth") {
-        signOut();
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data) {
+        // FIX: Doble casteo para evitar el error ts(2352)
+        setUserData(data as unknown as SgcUser);
+        
+        supabase
+          .from("users" as any)
+          .update({ last_access: new Date().toISOString() })
+          .eq("auth_id", auth_id)
+          .then();
+      } else {
+        if (window.location.pathname !== "/auth") {
+          signOut();
+        }
       }
+    } catch (error) {
+      console.error("Error al obtener datos:", error);
     }
-  } catch (error) {
-    console.error("Error al obtener datos:", error);
-  }
-};
+  };
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
