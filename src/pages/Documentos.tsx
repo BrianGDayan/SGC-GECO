@@ -1,7 +1,6 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
 import { 
   FileText, Upload, Search, Download, Eye, Edit, Trash2, FolderOpen, Loader2, AlertTriangle, Filter 
 } from "lucide-react";
@@ -11,9 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import DocumentForm from "@/components/forms/DocumentForm"; // IMPORTANTE: Importar el componente
 
 const categories = [
   { id: "manual", name: "Manual", prefix: "MA" },
@@ -33,9 +31,7 @@ const statusStyles = {
 };
 
 const Documentos = () => {
-  const { userData } = useAuth();
   const queryClient = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Estados de Filtros
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -47,15 +43,6 @@ const Documentos = () => {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editingDoc, setEditingDoc] = useState<any>(null);
   const [deletingDoc, setDeletingDoc] = useState<any>(null);
-
-  // Estados del Formulario
-  const [formName, setFormName] = useState("");
-  const [formCategory, setFormCategory] = useState("");
-  const [formDocNumber, setFormDocNumber] = useState("");
-  const [formStatus, setFormStatus] = useState("en revision");
-  const [formRevision, setFormRevision] = useState(0);
-  const [formDescription, setFormDescription] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   // Query de Documentos
   const { data: documents = [], isLoading } = useQuery({
@@ -74,7 +61,7 @@ const Documentos = () => {
     },
   });
 
-  // Lógica de Filtrado (Nombre, Código y Estado)
+  // Lógica de Filtrado
   const filteredDocs = documents.filter((doc: any) => {
     const matchesCat = !selectedCategory || doc.category === selectedCategory;
     const matchesStatus = statusFilter === "all" || doc.status === statusFilter;
@@ -86,7 +73,6 @@ const Documentos = () => {
     return matchesCat && matchesStatus && matchesSearch;
   });
 
-  // Handlers de Acciones
   const handleDownload = async (url: string, name: string) => {
     try {
       const res = await fetch(url);
@@ -98,56 +84,20 @@ const Documentos = () => {
     } catch (e) { window.open(url, "_blank"); }
   };
 
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      if (!userData) throw new Error("No autenticado");
-      let fileUrl = editingDoc?.file_url, fileName = editingDoc?.file_name;
-
-      if (selectedFile) {
-        const path = `${crypto.randomUUID()}.${selectedFile.name.split('.').pop()}`;
-        const { error: upErr } = await supabase.storage.from('documents').upload(path, selectedFile);
-        if (upErr) throw upErr;
-        const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(path);
-        fileUrl = publicUrl; fileName = selectedFile.name;
-      }
-
-      const catObj = categories.find(c => c.id === formCategory);
-      const generatedCode = `${catObj?.prefix}-${formDocNumber.padStart(3, '0')}`;
-
-      const docData: any = { 
-        code: generatedCode, title: formName, category: formCategory, 
-        status: formStatus, revision: formRevision, description: formDescription, 
-        file_url: fileUrl, file_name: fileName, uploaded_by: userData.id 
-      };
-
-      if (editingDoc) {
-        const { error } = await supabase.from("documents" as any).update(docData).eq("id", editingDoc.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("documents" as any).insert(docData);
-        if (error) throw error;
-      }
-    },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["documents"] }); toast.success("Operación exitosa"); closeModal(); }
-  });
-
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => { await supabase.from("documents" as any).delete().eq("id", id); },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["documents"] }); toast.success("Documento eliminado"); setIsDeleteOpen(false); }
   });
 
-  // Gestión de Modal
   const openModal = (doc: any = null) => {
-    if (doc) {
-      setEditingDoc(doc); setFormName(doc.title); setFormCategory(doc.category);
-      setFormDocNumber(doc.code?.split('-')[1] || "");
-      setFormStatus(doc.status); setFormRevision(doc.revision); setFormDescription(doc.description || "");
-    } else { setEditingDoc(null); resetForm(); }
+    setEditingDoc(doc);
     setIsModalOpen(true);
   };
 
-  const closeModal = () => { setIsModalOpen(false); setEditingDoc(null); resetForm(); };
-  const resetForm = () => { setFormName(""); setFormCategory(""); setFormDocNumber(""); setFormStatus("en revision"); setFormRevision(0); setFormDescription(""); setSelectedFile(null); };
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditingDoc(null);
+  };
 
   if (isLoading) return <MainLayout title="Documentos"><div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div></MainLayout>;
 
@@ -238,58 +188,18 @@ const Documentos = () => {
         </div>
       </div>
 
-      {/* Modal Subir/Editar */}
+      {/* Modal Subir/Editar usando el COMPONENTE REUTILIZABLE */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="sm:max-w-lg w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingDoc ? "Editar Documento" : "Subir Nuevo Documento"}</DialogTitle>
             <DialogDescription>Complete la información técnica del registro documental.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2"><Label>Nombre del Documento</Label><Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Ej: Manual de Gestión de Calidad" /></div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2 col-span-1"><Label>Nº Documento</Label><Input type="number" placeholder="001" value={formDocNumber} onChange={(e) => setFormDocNumber(e.target.value)} /></div>
-              <div className="space-y-2 col-span-2"><Label>Categoría</Label>
-                <Select value={formCategory} onValueChange={setFormCategory}>
-                  <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
-                  <SelectContent>{categories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Estado</Label>
-                <Select value={formStatus} onValueChange={setFormStatus}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{Object.keys(statusStyles).map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2"><Label>Revisión (Nº)</Label><Input type="number" value={formRevision} onChange={(e) => setFormRevision(parseInt(e.target.value) || 0)} /></div>
-            </div>
-            <div className="space-y-2"><Label>Descripción / Notas</Label><Textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} /></div>
-            <div className="space-y-2">
-              <Label>Archivo Adjunto</Label>
-              <input type="file" className="hidden" ref={fileInputRef} onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} />
-              <div 
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.files?.[0]) setSelectedFile(e.dataTransfer.files[0]); }}
-                className={`rounded-lg border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${selectedFile ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}
-              >
-                <Upload className="mx-auto h-8 w-8 text-muted-foreground" />
-                <p className="mt-2 text-sm">{selectedFile ? selectedFile.name : editingDoc ? editingDoc.file_name : "Haz clic o arrastra un archivo aquí"}</p>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeModal}>Cancelar</Button>
-            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !formName || !formDocNumber || !formCategory}>
-              {saveMutation.isPending ? "Guardando..." : "Confirmar"}
-            </Button>
-          </DialogFooter>
+          <DocumentForm editingDoc={editingDoc} onSuccess={closeModal} />
         </DialogContent>
       </Dialog>
 
-      {/* Modal Eliminar */}
+      {/* Modal Eliminar (se mantiene igual) */}
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
