@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { 
-  FileText, Upload, Search, Download, Eye, Edit, Trash2, FolderOpen, Loader2, AlertTriangle, Filter 
+  FileText, Upload, Search, Download, Eye, Edit, Trash2, FolderOpen, Loader2, AlertTriangle, Filter, FileUp 
 } from "lucide-react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import DocumentForm from "@/components/forms/DocumentForm"; // IMPORTANTE: Importar el componente
+import DocumentForm from "@/components/forms/DocumentForm";
+import DocumentVersionForm from "@/components/forms/DocumentVersionForm";
 
 const categories = [
   { id: "manual", name: "Manual", prefix: "MA" },
@@ -28,6 +29,7 @@ const statusStyles = {
   "en revision": "bg-warning/10 text-warning border-warning/20",
   "en aprobacion": "bg-primary/10 text-primary border-primary/20",
   "no aprobado": "bg-destructive/10 text-destructive border-destructive/20",
+  obsoleto: "bg-muted text-muted-foreground border-border",
 };
 
 const Documentos = () => {
@@ -36,12 +38,16 @@ const Documentos = () => {
   // Estados de Filtros
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // CAMBIO: Estado por defecto "all"
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
   // Estados de Modales
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  
   const [editingDoc, setEditingDoc] = useState<any>(null);
+  const [versioningDoc, setVersioningDoc] = useState<any>(null);
   const [deletingDoc, setDeletingDoc] = useState<any>(null);
 
   // Query de Documentos
@@ -49,14 +55,16 @@ const Documentos = () => {
     queryKey: ["documents"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("documents" as any)
-        .select(`*, users(full_name)`)
-        .order("created_at", { ascending: false });
+        .from("documents_view" as any)
+        .select(`*`)
+        .order("code", { ascending: true })
+        .order("revision", { ascending: false });
+      
       if (error) throw error;
       return data.map((doc: any) => ({
         ...doc,
-        updatedBy: doc.users?.full_name || "Sistema",
-        updatedAt: new Date(doc.updated_at).toLocaleDateString()
+        updatedBy: doc.user_name || "Sistema",
+        updatedAt: new Date(doc.uploaded_at).toLocaleDateString()
       }));
     },
   });
@@ -64,7 +72,9 @@ const Documentos = () => {
   // Lógica de Filtrado
   const filteredDocs = documents.filter((doc: any) => {
     const matchesCat = !selectedCategory || doc.category === selectedCategory;
+    // CAMBIO: Lógica simplificada para mostrar todos o filtrar por estado específico
     const matchesStatus = statusFilter === "all" || doc.status === statusFilter;
+
     const searchLower = searchQuery.toLowerCase();
     const matchesSearch = !searchQuery || 
       (doc.title && doc.title.toLowerCase().includes(searchLower)) || 
@@ -94,9 +104,16 @@ const Documentos = () => {
     setIsModalOpen(true);
   };
 
+  const openVersionModal = (doc: any) => {
+    setVersioningDoc(doc);
+    setIsVersionModalOpen(true);
+  };
+
   const closeModal = () => {
     setIsModalOpen(false);
+    setIsVersionModalOpen(false);
     setEditingDoc(null);
+    setVersioningDoc(null);
   };
 
   if (isLoading) return <MainLayout title="Documentos"><div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div></MainLayout>;
@@ -133,6 +150,7 @@ const Documentos = () => {
                 <SelectTrigger className="w-52"><Filter className="h-4 w-4 mr-2" /><SelectValue placeholder="Estado" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos los estados</SelectItem>
+                  {/* CAMBIO: Se muestran todas las opciones del objeto statusStyles */}
                   {Object.keys(statusStyles).map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -147,6 +165,8 @@ const Documentos = () => {
                   <th className="px-4 py-3 text-left text-sm font-medium">Código</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Nombre</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Categoría</th>
+                  {/* CAMBIO: Nuevo encabezado de Proceso */}
+                  <th className="px-4 py-3 text-left text-sm font-medium">Proceso</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Rev.</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Actualizado</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Estado</th>
@@ -155,7 +175,7 @@ const Documentos = () => {
               </thead>
               <tbody className="divide-y divide-border">
                 {filteredDocs.map((doc: any) => (
-                  <tr key={doc.id} className="transition-colors hover:bg-muted/30">
+                  <tr key={doc.version_id} className={`transition-colors hover:bg-muted/30 ${doc.status === 'obsoleto' ? 'opacity-60 bg-muted/10' : ''}`}>
                     <td className="px-4 py-3 font-mono text-sm font-medium text-primary">{doc.code}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -164,18 +184,29 @@ const Documentos = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-muted-foreground capitalize">{categories.find(c => c.id === doc.category)?.name || doc.category}</td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">{doc.revision}</td>
+                    {/* CAMBIO: Nueva celda de Proceso */}
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{doc.process || "-"}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground font-bold">{doc.revision}</td>
                     <td className="px-4 py-3 text-xs">
                       <p className="text-foreground">{doc.updatedAt}</p>
                       <p className="text-muted-foreground text-[12px]">{doc.updatedBy}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <Badge variant="outline" className={`${statusStyles[doc.status as keyof typeof statusStyles]} text-[10px] uppercase`}>{doc.status}</Badge>
+                      <Badge variant="outline" className={`${statusStyles[doc.status as keyof typeof statusStyles] || statusStyles['obsoleto']} text-[10px] uppercase`}>
+                        {doc.status}
+                      </Badge>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="icon" className="h-8 w-8" asChild><a href={doc.file_url} target="_blank" rel="noreferrer"><Eye className="h-4 w-4" /></a></Button>
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDownload(doc.file_url, doc.file_name)}><Download className="h-4 w-4" /></Button>
+                        
+                        {doc.status !== 'obsoleto' && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => openVersionModal(doc)} title="Nueva Versión">
+                            <FileUp className="h-4 w-4" />
+                          </Button>
+                        )}
+                        
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openModal(doc)}><Edit className="h-4 w-4" /></Button>
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { setDeletingDoc(doc); setIsDeleteOpen(true); }}><Trash2 className="h-4 w-4" /></Button>
                       </div>
@@ -188,28 +219,36 @@ const Documentos = () => {
         </div>
       </div>
 
-      {/* Modal Subir/Editar usando el COMPONENTE REUTILIZABLE */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="sm:max-w-lg w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingDoc ? "Editar Documento" : "Subir Nuevo Documento"}</DialogTitle>
-            <DialogDescription>Complete la información técnica del registro documental.</DialogDescription>
+            <DialogTitle>{editingDoc ? "Editar Metadatos" : "Subir Nuevo Documento"}</DialogTitle>
+            <DialogDescription>{editingDoc ? "Modifique la información general del documento." : "Complete la información técnica del registro documental."}</DialogDescription>
           </DialogHeader>
           <DocumentForm editingDoc={editingDoc} onSuccess={closeModal} />
         </DialogContent>
       </Dialog>
 
-      {/* Modal Eliminar (se mantiene igual) */}
+      <Dialog open={isVersionModalOpen} onOpenChange={setIsVersionModalOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Generar Nueva Versión</DialogTitle>
+            <DialogDescription>Cargar actualización para el documento <strong>{versioningDoc?.code}</strong>.</DialogDescription>
+          </DialogHeader>
+          {versioningDoc && <DocumentVersionForm parentDoc={versioningDoc} onSuccess={closeModal} />}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive"><AlertTriangle className="h-6 w-6" /></div>
             <DialogTitle className="text-center">¿Confirmar eliminación?</DialogTitle>
-            <DialogDescription className="text-center">Esta acción eliminará permanentemente a <strong>{deletingDoc?.code}</strong>. No se puede revertir.</DialogDescription>
+            <DialogDescription className="text-center">Esta acción eliminará <strong>todas las versiones</strong> del documento <strong>{deletingDoc?.code}</strong>. No se puede revertir.</DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-center">
             <Button variant="outline" onClick={() => setIsDeleteOpen(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={() => deleteMutation.mutate(deletingDoc.id)}>Eliminar Documento</Button>
+            <Button variant="destructive" onClick={() => deleteMutation.mutate(deletingDoc.doc_id)}>Eliminar Documento</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

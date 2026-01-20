@@ -281,7 +281,7 @@ const Procesos = () => {
           <DialogHeader><DialogTitle>Nuevo Proceso</DialogTitle><DialogDescription>Complete la información técnica del proceso.</DialogDescription></DialogHeader>
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-4 gap-4">
-              <div className="col-span-1 space-y-2"><Label>Código</Label><Input value={form.code} onChange={(e) => setForm({...form, code: e.target.value})} placeholder="Ej: LOG" /></div>
+              <div className="col-span-1 space-y-2"><Label>Código</Label><Input value={form.code} onChange={(e) => setForm({...form, code: e.target.value})} placeholder="Ej: PG-001" /></div>
               <div className="col-span-3 space-y-2"><Label>Nombre del Proceso</Label><Input value={form.name} onChange={(e) => setForm({...form, name: e.target.value})} placeholder="Ej: Logística y Taller" /></div>
             </div>
             <div className="space-y-2">
