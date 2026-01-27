@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { 
@@ -37,7 +38,8 @@ const Documentos = () => {
 
   // Estados de Filtros
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchParams] = useSearchParams();
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
   // CAMBIO: Estado por defecto "all"
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
@@ -49,7 +51,7 @@ const Documentos = () => {
   const [editingDoc, setEditingDoc] = useState<any>(null);
   const [versioningDoc, setVersioningDoc] = useState<any>(null);
   const [deletingDoc, setDeletingDoc] = useState<any>(null);
-
+  
   // Query de Documentos
   const { data: documents = [], isLoading } = useQuery({
     queryKey: ["documents"],
