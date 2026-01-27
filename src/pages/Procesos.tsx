@@ -74,7 +74,7 @@ const Procesos = () => {
       const payload = { 
         ...form, 
         subprocesses: form.subprocesses.split(",").map(s => s.trim()).filter(Boolean),
-        created_by: user?.id
+        owner_id: user?.id
       };
       const { error } = await supabase.from("processes").insert([payload]);
       if (error) throw error;
