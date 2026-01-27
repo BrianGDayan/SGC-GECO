@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { 
   FileText, BarChart3, ChevronRight, ArrowLeft, Target, AlertTriangle, 
-  Loader2, Plus, Search, Filter, X, TrendingUp, Download 
+  Loader2, Plus, Search, Filter, TrendingUp, Download 
 } from "lucide-react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -47,18 +47,13 @@ const Procesos = () => {
   const { data: processes = [], isLoading } = useQuery({
     queryKey: ["processes"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("processes" as any).select(`
-        *, documents(count), indicators(current_value, target_value)
-      `);
+      const { data, error } = await supabase
+        .from("processes_view" as any)
+        .select("*")
+        .order("code", { ascending: true });
+        
       if (error) throw error;
-      return (data as any[]).map(p => {
-        const indicators = (p.indicators as any[]) || [];
-        const validInds = indicators.filter((i: any) => i.target_value > 0);
-        const compliance = validInds.length > 0
-          ? Math.round(validInds.reduce((acc: number, curr: any) => acc + (curr.current_value / curr.target_value) * 100, 0) / validInds.length)
-          : (p.compliance_percentage || 0);
-        return { ...p, compliance };
-      });
+      return data || [];
     }
   });
 
@@ -66,8 +61,8 @@ const Procesos = () => {
     queryKey: ["process-content", selectedProcess?.id],
     queryFn: async () => {
       const [docs, inds] = await Promise.all([
-        supabase.from("documents" as any).select("*").eq("process_id", selectedProcess.id),
-        supabase.from("indicators" as any).select("*").eq("process_id", selectedProcess.id)
+        supabase.from("documents_view" as any).select("*").eq("process", selectedProcess.name),
+        supabase.from("indicators" as any).select("*").eq("process", selectedProcess.name)
       ]);
       return { docs: (docs.data as any[]) || [], inds: (inds.data as any[]) || [] };
     },
@@ -79,10 +74,9 @@ const Procesos = () => {
       const payload = { 
         ...form, 
         subprocesses: form.subprocesses.split(",").map(s => s.trim()).filter(Boolean),
-        owner_id: user?.id,
-        compliance_percentage: 0 
+        created_by: user?.id
       };
-      const { error } = await supabase.from("processes" as any).insert([payload]);
+      const { error } = await supabase.from("processes").insert([payload]);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -101,6 +95,7 @@ const Procesos = () => {
       const v2 = parseFloat(uploadData.v2);
       const newResult = v2 !== 0 ? (v1 / v2) * 100 : 0;
 
+      // CORRECCIÓN AQUÍ: Agregamos 'as any' para evitar el error de tipado
       await supabase.from("indicator_history" as any).insert([{
         indicator_id: ind.id, value_1: v1, value_2: v2, result: newResult,
         period_date: uploadData.period + "-01", observations: uploadData.obs
@@ -176,20 +171,26 @@ const Procesos = () => {
                   </div>
                 </div>
               </div>
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-muted-foreground border-b text-left">
-                  <tr><th className="p-4">Código</th><th className="p-4">Título</th><th className="p-4">Estado</th></tr>
-                </thead>
-                <tbody className="divide-y">
-                  {filteredDocs.map((doc: any) => (
-                    <tr key={doc.id} className="hover:bg-muted/10">
-                      <td className="p-4 font-mono text-xs text-primary">{doc.code}</td>
-                      <td className="p-4 font-medium">{doc.title}</td>
-                      <td className="p-4"><Badge variant="outline" className={cn("text-[9px] uppercase font-bold", statusStyles[doc.status as keyof typeof statusStyles])}>{doc.status}</Badge></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-muted-foreground border-b text-left">
+                    <tr><th className="p-4">Código</th><th className="p-4">Título</th><th className="p-4">Estado</th></tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {filteredDocs.length === 0 ? (
+                      <tr><td colSpan={3} className="p-4 text-center text-muted-foreground">No hay documentos asociados.</td></tr>
+                    ) : (
+                      filteredDocs.map((doc: any) => (
+                        <tr key={doc.doc_id || doc.id} className="hover:bg-muted/10">
+                          <td className="p-4 font-mono text-xs text-primary">{doc.code}</td>
+                          <td className="p-4 font-medium">{doc.title}</td>
+                          <td className="p-4"><Badge variant="outline" className={cn("text-[9px] uppercase font-bold", statusStyles[doc.status as keyof typeof statusStyles] || "bg-gray-100")}>{doc.status}</Badge></td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 
@@ -200,10 +201,10 @@ const Procesos = () => {
                 {isEditor && <Button size="icon" variant="ghost" onClick={() => setIsUploadOpen(true)} className="h-8 w-8 text-primary"><Plus className="h-4 w-4" /></Button>}
               </div>
               <div className="space-y-6">
-                {detail.inds.map((ind: any) => (
+                {detail.inds.length === 0 ? <p className="text-xs text-muted-foreground">No hay indicadores definidos.</p> : detail.inds.map((ind: any) => (
                   <div key={ind.id} className="space-y-2">
                     <div className="flex justify-between text-xs font-medium"><span>{ind.name}</span><span className="text-primary">{ind.current_value}{ind.unit}</span></div>
-                    <Progress value={(ind.current_value / ind.target_value) * 100} className="h-1.5" />
+                    <Progress value={Math.min((ind.current_value / (ind.target_value || 1)) * 100, 100)} className="h-1.5" />
                   </div>
                 ))}
               </div>
@@ -211,7 +212,11 @@ const Procesos = () => {
             <div className="rounded-xl border bg-card p-6 shadow-sm">
               <h3 className="mb-4 font-semibold text-sm">Subprocesos Vinculados</h3>
               <div className="flex flex-wrap gap-1">
-                {selectedProcess.subprocesses?.map((sub: string) => (<Badge key={sub} variant="secondary" className="text-[10px] font-normal">{sub}</Badge>))}
+                {!selectedProcess.subprocesses || selectedProcess.subprocesses.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Sin subprocesos.</p>
+                ) : (
+                  selectedProcess.subprocesses.map((sub: string) => (<Badge key={sub} variant="secondary" className="text-[10px] font-normal">{sub}</Badge>))
+                )}
               </div>
             </div>
           </div>
@@ -267,8 +272,8 @@ const Procesos = () => {
               <ChevronRight className="h-5 w-5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             <div className="mb-4 grid grid-cols-3 gap-4 text-center">
-              <div><p className="text-lg font-semibold">{process.documents?.[0]?.count || 0}</p><p className="text-xs text-muted-foreground uppercase">Docs</p></div>
-              <div><p className="text-lg font-semibold">{process.indicators?.length || 0}</p><p className="text-xs text-muted-foreground uppercase">KPIs</p></div>
+              <div><p className="text-lg font-semibold">{process.doc_count || 0}</p><p className="text-xs text-muted-foreground uppercase">Docs</p></div>
+              <div><p className="text-lg font-semibold">{process.indicator_count || "-"}</p><p className="text-xs text-muted-foreground uppercase">KPIs</p></div>
               <div><p className={cn("text-lg font-semibold", getComplianceColor(process.compliance))}>{process.compliance}%</p><p className="text-xs text-muted-foreground uppercase">Cumplimiento</p></div>
             </div>
             <Progress value={process.compliance} className="h-2" />
