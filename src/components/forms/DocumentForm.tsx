@@ -26,7 +26,7 @@ interface DocumentFormProps {
 }
 
 const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
-  const { userData } = useAuth();
+  const { user } = useAuth(); 
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -34,7 +34,8 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
   const [form, setForm] = useState({
     title: editingDoc?.title || "",
     category: editingDoc?.category || "",
-    process: editingDoc?.process || "",
+    // Usamos el ID para el estado, si estamos editando intentamos cargarlo
+    process_id: editingDoc?.process_id?.toString() || "", 
     docNumber: editingDoc?.code?.split('-')[1] || "",
     status: editingDoc?.status || "en revision",
     revision: editingDoc?.revision || 0,
@@ -42,6 +43,7 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
+  // Obtener lista de procesos
   const { data: processes = [] } = useQuery({
     queryKey: ["processes"],
     queryFn: async () => {
@@ -52,21 +54,29 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!userData) throw new Error("No autenticado");
+      // 1. Usamos el UUID directo de Supabase Auth
+      const authUuid = user?.id; 
+      if (!authUuid) throw new Error("No estás autenticado.");
 
-      // CASO 1: EDICIÓN (Solo modifica metadatos en tabla documents)
+      // Buscamos el nombre del proceso seleccionado para guardarlo también (compatibilidad)
+      const selectedProcess = processes.find(p => p.id.toString() === form.process_id);
+      const processName = selectedProcess ? selectedProcess.name : "";
+
+      // CASO 1: EDICIÓN (Solo modifica metadatos)
       if (editingDoc) {
         const { error } = await supabase
           .from("documents" as any)
           .update({
             title: form.title,
             category: form.category,
-            process: form.process
+            process_id: parseInt(form.process_id), // Guardamos el ID
+            process: processName // Guardamos el nombre (legacy/vista)
           })
           .eq("id", editingDoc.doc_id);
         
         if (error) throw error;
         
+        // Si cambió la descripción, actualizamos la versión
         if (form.description !== editingDoc.description) {
              await supabase
             .from("document_versions" as any)
@@ -76,36 +86,47 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
         return;
       }
 
-      // CASO 2: CREACIÓN (Inserta en documents y document_versions)
+      // CASO 2: CREACIÓN
       if (!selectedFile) throw new Error("Archivo requerido para documento nuevo");
 
-      // 1. Subir archivo
-      const path = `${crypto.randomUUID()}.${selectedFile.name.split('.').pop()}`;
-      const { error: upErr } = await supabase.storage.from('documents').upload(path, selectedFile);
+      // A. Subir archivo al Storage
+      const fileExt = selectedFile.name.split('.').pop();
+      const filePath = `${crypto.randomUUID()}.${fileExt}`;
+      
+      const { error: upErr } = await supabase.storage
+        .from('documents')
+        .upload(filePath, selectedFile);
+      
       if (upErr) throw upErr;
-      const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(path);
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('documents')
+        .getPublicUrl(filePath);
 
+      // B. Generar Código
       const catObj = categories.find(c => c.id === form.category);
       const generatedCode = `${catObj?.prefix}-${form.docNumber.padStart(3, '0')}`;
 
-      // 2. Insertar Maestro (documents)
+      // C. Insertar Maestro (documents)
       const { data: master, error: masterErr } = await supabase
         .from("documents" as any)
         .insert([{ 
             code: generatedCode, 
             title: form.title, 
-            category: form.category, 
-            process: form.process,
+            category: form.category,
+            
+            process_id: parseInt(form.process_id), // RELACIÓN REAL (ID)
+            process: processName, // TEXTO (Compatibilidad)
+            
             file_name: selectedFile.name,
-            created_by: userData.id
+            created_by: authUuid // UUID Directo
         }])
         .select()
         .single();
 
       if (masterErr) throw masterErr;
 
-      // 3. Insertar Versión 0 (document_versions)
-      // FIX: Se agrega (master as any).id para evitar el error de tipado
+      // D. Insertar Versión 0 (document_versions)
       const { error: versionErr } = await supabase
         .from("document_versions" as any)
         .insert([{
@@ -114,17 +135,19 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
             file_url: publicUrl,
             status: form.status,
             description: form.description,
-            uploaded_by: userData.id
+            uploaded_by: authUuid // UUID Directo
         }]);
 
       if (versionErr) throw versionErr;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
-      toast.success(editingDoc ? "Metadatos actualizados" : "Documento creado");
+      toast.success(editingDoc ? "Documento actualizado" : "Documento creado exitosamente");
       onSuccess();
     },
-    onError: (e: any) => toast.error(e.message)
+    onError: (e: any) => {
+      toast.error("Error al guardar: " + e.message);
+    }
   });
 
   const handleDrag = (e: React.DragEvent) => {
@@ -156,12 +179,18 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
       
       <div className="space-y-2">
         <Label>Proceso</Label>
-        <Select value={form.process} onValueChange={(v) => setForm({...form, process: v})}>
+        <Select 
+            value={form.process_id} 
+            onValueChange={(v) => setForm({...form, process_id: v})}
+        >
           <SelectTrigger>
             <SelectValue placeholder="Seleccionar proceso" />
           </SelectTrigger>
           <SelectContent>
-            {processes.map((p) => <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>)}
+            {processes.map((p) => (
+                // AHORA usamos p.id como value
+                <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -216,27 +245,31 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
 
       <div className="space-y-2">
         <Label>Descripción</Label>
-        <Textarea value={form.description} onChange={(e) => setForm({...form, description: e.target.value})} />
+        <Textarea 
+          value={form.description} 
+          onChange={(e) => setForm({...form, description: e.target.value})} 
+          placeholder="Breve descripción del documento"
+        />
       </div>
 
       {!editingDoc && (
         <div className="space-y-2">
             <Label>Archivo Adjunto</Label>
             <input 
-            type="file" 
-            className="hidden" 
-            ref={fileInputRef} 
-            onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} 
+              type="file" 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} 
             />
             <div 
-            onClick={() => fileInputRef.current?.click()}
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-            className={`rounded-lg border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${
-                isDragging ? 'border-primary bg-primary/10' : selectedFile ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
-            }`}
+              onClick={() => fileInputRef.current?.click()}
+              onDragEnter={handleDrag}
+              onDragLeave={handleDrag}
+              onDragOver={handleDrag}
+              onDrop={handleDrop}
+              className={`rounded-lg border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${
+                  isDragging ? 'border-primary bg-primary/10' : selectedFile ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
+              }`}
             >
             <Upload className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
             <p className="mt-2 text-sm">
@@ -246,13 +279,16 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
         </div>
       )}
 
-      <Button 
-        className="w-full bg-primary" 
-        onClick={() => saveMutation.mutate()} 
-        disabled={saveMutation.isPending}
-      >
-        {saveMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Guardando...</> : "Confirmar"}
-      </Button>
+      <div className="flex justify-end gap-3 mt-4">
+        <Button variant="outline" onClick={onSuccess}>Cancelar</Button>
+        <Button 
+            className="bg-primary hover:bg-primary-dark" 
+            onClick={() => saveMutation.mutate()} 
+            disabled={saveMutation.isPending}
+        >
+            {saveMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Guardando...</> : "Confirmar"}
+        </Button>
+      </div>
     </div>
   );
 };

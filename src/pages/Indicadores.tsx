@@ -44,6 +44,13 @@ const statusStyles = {
   "en proceso": { bg: "bg-warning/10", text: "text-warning", border: "border-warning/20", label: "En Proceso" },
 };
 
+// Restauramos el mapa de iconos para que sea igual al original
+const trendIcons: Record<string, any> = {
+  up: TrendingUp,
+  down: TrendingDown,
+  stable: Target,
+};
+
 const Indicadores = () => {
   const { isEditor } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -149,15 +156,18 @@ const Indicadores = () => {
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         {filteredIndicators.map((ind, index) => {
           const style = statusStyles[ind.status as keyof typeof statusStyles] || statusStyles["en proceso"];
-          const isInitial = !ind.last_period_value;
-
+          // Obtenemos el icono correcto o usamos Target por defecto
+          const TrendIcon = trendIcons[ind.trend] || Target;
+          
           return (
             <div key={ind.id} className="group relative rounded-xl border border-border bg-card p-6 shadow-sm hover:shadow-md transition-all animate-slide-up" style={{ animationDelay: `${index * 50}ms` }}>
               {isEditor && <Button variant="ghost" size="icon" className="absolute right-2 top-2 h-8 w-8 opacity-0 group-hover:opacity-100" onClick={() => openModal(ind)}><Edit className="h-4 w-4" /></Button>}
+              
               <div className="mb-4 flex items-start justify-between pr-6">
                 <div><h3 className="font-semibold">{ind.name}</h3><p className="text-sm text-muted-foreground">{ind.process}</p></div>
                 <Badge variant="outline" className={cn(style.bg, style.text, style.border)}>{style.label}</Badge>
               </div>
+
               <div className="mb-4">
                 <div className="mb-2 flex items-end justify-between">
                   <div className="flex items-baseline gap-1"><span className="text-3xl font-bold text-foreground">{ind.current_value}</span><span className="text-sm text-muted-foreground">{ind.unit}</span></div>
@@ -165,11 +175,18 @@ const Indicadores = () => {
                 </div>
                 <Progress value={(ind.current_value / (ind.target_value || 1)) * 100} className="h-2" />
               </div>
+
               <div className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-1 text-muted-foreground"><Calendar className="h-4 w-4" /> {ind.frequency}</div>
-                <div className="flex items-center gap-1 text-muted-foreground">
-                   {isInitial ? <Target className="h-4 w-4"/> : ind.trend === "up" ? <TrendingUp className="text-success h-4 w-4"/> : <TrendingDown className="text-destructive h-4 w-4"/>}
-                   <span>{ind.responsible}</span>
+                
+                {/* AQUÍ ESTABA EL ERROR: RESTAURAMOS LA VISUALIZACIÓN DE TENDENCIA */}
+                <div className={cn(
+                  "flex items-center gap-1",
+                  ind.trend === "up" ? "text-success" :
+                  ind.trend === "down" ? "text-destructive" : "text-muted-foreground"
+                )}>
+                    <TrendIcon className="h-4 w-4" />
+                    <span>Tendencia</span>
                 </div>
               </div>
             </div>

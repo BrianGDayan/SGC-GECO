@@ -4,19 +4,19 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { 
   FileText, BarChart3, ChevronRight, ArrowLeft, Target, AlertTriangle, 
-  Loader2, Plus, Search, Filter, TrendingUp, Download 
+  Loader2, Plus, Search, Filter 
 } from "lucide-react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+// CORRECCIÓN: Agregado DialogFooter a los imports
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import ProcessForm from "@/components/forms/ProcessForm";
 
 const statusStyles = {
   vigente: "bg-success/10 text-success border-success/20",
@@ -33,7 +33,7 @@ const getComplianceColor = (compliance: number) => {
 
 const Procesos = () => {
   const queryClient = useQueryClient();
-  const { isEditor, user } = useAuth();
+  const { isEditor } = useAuth();
   
   const [selectedProcess, setSelectedProcess] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -41,9 +41,10 @@ const Procesos = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   
-  const [form, setForm] = useState({ name: "", code: "", type: "operativo", responsibles: "", subprocesses: "" });
+  // Estado solo para la medición de indicadores (Upload)
   const [uploadData, setUploadData] = useState({ indicator_id: "", v1: "", v2: "", period: "", obs: "" });
 
+  // === 1. CARGA DE PROCESOS (VISTA SQL) ===
   const { data: processes = [], isLoading } = useQuery({
     queryKey: ["processes"],
     queryFn: async () => {
@@ -57,6 +58,7 @@ const Procesos = () => {
     }
   });
 
+  // === 2. DETALLE DE PROCESO ===
   const { data: detail = { docs: [], inds: [] } } = useQuery({
     queryKey: ["process-content", selectedProcess?.id],
     queryFn: async () => {
@@ -69,50 +71,53 @@ const Procesos = () => {
     enabled: !!selectedProcess
   });
 
-  const saveProcess = useMutation({
-    mutationFn: async () => {
-      const payload = { 
-        ...form, 
-        subprocesses: form.subprocesses.split(",").map(s => s.trim()).filter(Boolean),
-        owner_id: user?.id
-      };
-      const { error } = await supabase.from("processes").insert([payload]);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["processes"] });
-      setIsModalOpen(false);
-      setForm({ name: "", code: "", type: "operativo", responsibles: "", subprocesses: "" });
-      toast.success("Proceso creado exitosamente");
-    }
-  });
-
+  // === 3. CARGAR MEDICIÓN (Logica existente) ===
   const uploadMutation = useMutation({
     mutationFn: async () => {
+      // Validar que se haya seleccionado un indicador
+      if (!uploadData.indicator_id) throw new Error("Debes seleccionar un indicador.");
+
       const ind = detail.inds.find((i: any) => i.id.toString() === uploadData.indicator_id);
-      if (!ind) return;
-      const v1 = parseFloat(uploadData.v1);
-      const v2 = parseFloat(uploadData.v2);
+      if (!ind) throw new Error("Indicador no encontrado.");
+      
+      const v1 = parseFloat(uploadData.v1) || 0;
+      const v2 = parseFloat(uploadData.v2) || 0;
       const newResult = v2 !== 0 ? (v1 / v2) * 100 : 0;
 
-      // CORRECCIÓN AQUÍ: Agregamos 'as any' para evitar el error de tipado
-      await supabase.from("indicator_history" as any).insert([{
-        indicator_id: ind.id, value_1: v1, value_2: v2, result: newResult,
-        period_date: uploadData.period + "-01", observations: uploadData.obs
+      // 1. Insertar en el historial
+      const { error: histError } = await supabase.from("indicator_history" as any).insert([{
+        indicator_id: ind.id, 
+        value_1: v1, 
+        value_2: v2, 
+        result: newResult,
+        period_date: uploadData.period ? (uploadData.period + "-01") : new Date().toISOString().split('T')[0], 
+        observations: uploadData.obs
       }]);
+      
+      if (histError) throw histError;
 
-      await supabase.from("indicators" as any).update({
+      // 2. Actualizar el indicador principal
+      const { error: indError } = await supabase.from("indicators" as any).update({
         current_value: newResult, 
         status: newResult >= ind.target_value ? "cumple" : "no cumple",
         last_update: new Date().toISOString().split('T')[0]
       }).eq("id", ind.id);
+
+      if (indError) throw indError;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["processes"] });
       queryClient.invalidateQueries({ queryKey: ["process-content"] });
+      
+      toast.success("Medición registrada correctamente");
+      
+      // SOLO cerramos la modal si todo salió bien
       setIsUploadOpen(false);
       setUploadData({ indicator_id: "", v1: "", v2: "", period: "", obs: "" });
-      toast.success("Medición registrada");
+    },
+    onError: (err) => {
+      // Si falla, mostramos el error y MANTENEMOS la modal abierta
+      toast.error("Error al cargar medición: " + err.message);
     }
   });
 
@@ -124,6 +129,7 @@ const Procesos = () => {
 
   if (isLoading) return <MainLayout title="Procesos"><div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div></MainLayout>;
 
+  // === VISTA DE DETALLE (DASHBOARD DEL PROCESO) ===
   if (selectedProcess) {
     return (
       <MainLayout title={selectedProcess.name} subtitle={`Dashboard de ${selectedProcess.code}`}>
@@ -243,6 +249,7 @@ const Procesos = () => {
     );
   }
 
+  // === VISTA PRINCIPAL (TARJETAS) ===
   return (
     <MainLayout title="Procesos" subtitle="Mapa estratégico del Sistema de Gestión">
       <div className="mb-6 flex justify-end">
@@ -263,43 +270,79 @@ const Procesos = () => {
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         {processes.map((process: any, index: number) => (
-          <div key={process.id} onClick={() => setSelectedProcess(process)} className="group rounded-xl border border-border bg-card p-6 shadow-sm hover:border-primary/30 cursor-pointer transition-all animate-slide-up" style={{ animationDelay: `${index * 50}ms` }}>
+          <div 
+            key={process.id} 
+            onClick={() => setSelectedProcess(process)} 
+            className="group rounded-xl border border-border bg-card p-6 shadow-sm transition-all duration-300 hover:shadow-md hover:border-primary/30 cursor-pointer animate-slide-up"
+            style={{ animationDelay: `${index * 50}ms` }}
+          >
             <div className="mb-4 flex items-start justify-between">
               <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold">{process.code}</div>
-                <div><h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">{process.name}</h3><p className="text-sm text-muted-foreground">{process.responsibles}</p></div>
+                <div className="flex h-12 min-w-[3.5rem] px-2 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold">
+                  {process.code}
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                    {process.name}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">{process.responsibles}</p>
+                </div>
               </div>
               <ChevronRight className="h-5 w-5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
+
             <div className="mb-4 grid grid-cols-3 gap-4 text-center">
-              <div><p className="text-lg font-semibold">{process.doc_count || 0}</p><p className="text-xs text-muted-foreground uppercase">Docs</p></div>
-              <div><p className="text-lg font-semibold">{process.indicator_count || "-"}</p><p className="text-xs text-muted-foreground uppercase">KPIs</p></div>
-              <div><p className={cn("text-lg font-semibold", getComplianceColor(process.compliance))}>{process.compliance}%</p><p className="text-xs text-muted-foreground uppercase">Cumplimiento</p></div>
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-1 text-muted-foreground">
+                  <FileText className="h-4 w-4" />
+                </div>
+                <p className="text-lg font-semibold text-foreground">{process.doc_count || 0}</p>
+                <p className="text-xs text-muted-foreground">Documentos</p>
+              </div>
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-1 text-muted-foreground">
+                  <BarChart3 className="h-4 w-4" />
+                </div>
+                <p className="text-lg font-semibold text-foreground">{process.indicator_count || "-"}</p>
+                <p className="text-xs text-muted-foreground">Indicadores</p>
+              </div>
+              <div className="text-center">
+                <p className={`text-lg font-semibold ${getComplianceColor(process.compliance)}`}>
+                  {process.compliance}%
+                </p>
+                <p className="text-xs text-muted-foreground">Cumplimiento</p>
+              </div>
             </div>
-            <Progress value={process.compliance} className="h-2" />
+
+            <div className="mb-4">
+              <Progress value={process.compliance} className="h-2" />
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Subprocesos
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {(!process.subprocesses || process.subprocesses.length === 0) ? (
+                  <span className="text-[10px] text-muted-foreground italic">Sin subprocesos</span>
+                ) : (
+                  process.subprocesses.map((sub: string) => (
+                    <Badge key={sub} variant="secondary" className="text-[10px] font-normal">{sub}</Badge>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         ))}
       </div>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="sm:max-w-xl">
-          <DialogHeader><DialogTitle>Nuevo Proceso</DialogTitle><DialogDescription>Complete la información técnica del proceso.</DialogDescription></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-4 gap-4">
-              <div className="col-span-1 space-y-2"><Label>Código</Label><Input value={form.code} onChange={(e) => setForm({...form, code: e.target.value})} placeholder="Ej: PG-001" /></div>
-              <div className="col-span-3 space-y-2"><Label>Nombre del Proceso</Label><Input value={form.name} onChange={(e) => setForm({...form, name: e.target.value})} placeholder="Ej: Logística y Taller" /></div>
-            </div>
-            <div className="space-y-2">
-              <Label>Tipo de Proceso</Label>
-              <Select value={form.type} onValueChange={(v) => setForm({...form, type: v})}>
-                <SelectTrigger><SelectValue placeholder="Seleccionar tipo" /></SelectTrigger>
-                <SelectContent><SelectItem value="estratégico">Estratégico</SelectItem><SelectItem value="operativo">Operativo</SelectItem><SelectItem value="apoyo">Apoyo</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2"><Label>Responsables</Label><Input value={form.responsibles} onChange={(e) => setForm({...form, responsibles: e.target.value})} placeholder="Ej: Gerente Comercial, Responsable RRHH" /></div>
-            <div className="space-y-2"><Label>Subprocesos (separados por coma)</Label><Textarea value={form.subprocesses} onChange={(e) => setForm({...form, subprocesses: e.target.value})} placeholder="Gestión estratégica, Auditorías, etc." rows={3} /></div>
-          </div>
-          <DialogFooter><Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancelar</Button><Button onClick={() => saveProcess.mutate()} className="bg-primary hover:bg-primary-dark">Guardar Proceso</Button></DialogFooter>
+          <DialogHeader>
+            <DialogTitle>Nuevo Proceso</DialogTitle>
+            <DialogDescription>Complete la información técnica del proceso.</DialogDescription>
+          </DialogHeader>
+          <ProcessForm onSuccess={() => setIsModalOpen(false)} />
         </DialogContent>
       </Dialog>
     </MainLayout>
