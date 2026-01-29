@@ -2,40 +2,10 @@ import { Progress } from "@/components/ui/progress";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const indicators = [
-  {
-    id: 1,
-    name: "Satisfacción del Cliente",
-    value: 92,
-    target: 90,
-    trend: "up",
-    unit: "%",
-  },
-  {
-    id: 2,
-    name: "Tiempo de Respuesta",
-    value: 24,
-    target: 48,
-    trend: "up",
-    unit: "hrs",
-  },
-  {
-    id: 3,
-    name: "No Conformidades Cerradas",
-    value: 78,
-    target: 95,
-    trend: "down",
-    unit: "%",
-  },
-  {
-    id: 4,
-    name: "Capacitaciones Completadas",
-    value: 85,
-    target: 100,
-    trend: "stable",
-    unit: "%",
-  },
-];
+// Definimos la interfaz para recibir los datos reales
+interface IndicatorProgressProps {
+  indicators?: any[];
+}
 
 const trendIcons = {
   up: TrendingUp,
@@ -49,7 +19,7 @@ const trendColors = {
   stable: "text-muted-foreground",
 };
 
-const IndicatorProgress = () => {
+const IndicatorProgress = ({ indicators = [] }: IndicatorProgressProps) => {
   return (
     <div className="rounded-xl border border-border bg-card shadow-sm animate-slide-up" style={{ animationDelay: "100ms" }}>
       <div className="border-b border-border p-6">
@@ -57,36 +27,53 @@ const IndicatorProgress = () => {
         <p className="text-sm text-muted-foreground">Progreso hacia objetivos de calidad</p>
       </div>
       <div className="divide-y divide-border">
-        {indicators.map((indicator) => {
-          const TrendIcon = trendIcons[indicator.trend as keyof typeof trendIcons];
-          const progress = indicator.unit === "hrs" 
-            ? Math.min(100, ((indicator.target - indicator.value) / indicator.target) * 100 + 50)
-            : (indicator.value / indicator.target) * 100;
-          const isOnTarget = indicator.unit === "hrs" 
-            ? indicator.value <= indicator.target 
-            : indicator.value >= indicator.target;
+        {indicators.length === 0 ? (
+          <div className="p-6 text-center text-muted-foreground text-sm">
+            No hay indicadores configurados.
+          </div>
+        ) : (
+          indicators.map((indicator) => {
+            // Mapeo de datos reales de la BD
+            // Si trend viene nulo, asumimos 'stable'
+            const trendKey = (indicator.trend as keyof typeof trendIcons) || "stable";
+            const TrendIcon = trendIcons[trendKey];
+            
+            const current = indicator.current_value || 0;
+            const target = indicator.target_value || 1; // Evitar división por cero
+            const unit = indicator.unit || "";
+            
+            // Cálculo de progreso (simple para visualización)
+            const progress = Math.min((current / target) * 100, 100);
+            
+            // Determinar si cumple (lógica visual básica basada en status)
+            const isOnTarget = indicator.status === "cumple";
 
-          return (
-            <div key={indicator.id} className="p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-foreground">{indicator.name}</span>
-                  <TrendIcon className={cn("h-4 w-4", trendColors[indicator.trend as keyof typeof trendColors])} />
+            return (
+              <div key={indicator.id} className="p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-foreground truncate max-w-[150px]" title={indicator.name}>
+                        {indicator.name}
+                    </span>
+                    <TrendIcon className={cn("h-4 w-4", trendColors[trendKey])} />
+                  </div>
+                  <span className={cn(
+                    "text-sm font-semibold",
+                    isOnTarget ? "text-success" : "text-warning"
+                  )}>
+                    {current}{unit} / {target}{unit}
+                  </span>
                 </div>
-                <span className={cn(
-                  "text-sm font-semibold",
-                  isOnTarget ? "text-success" : "text-warning"
-                )}>
-                  {indicator.value}{indicator.unit} / {indicator.target}{indicator.unit}
-                </span>
+                <Progress 
+                  value={progress} 
+                  className="h-2"
+                  // Opcional: Podrías personalizar el color de la barra si tu componente Progress lo soporta, 
+                  // o dejarlo con el default del tema
+                />
               </div>
-              <Progress 
-                value={Math.min(progress, 100)} 
-                className="h-2"
-              />
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );

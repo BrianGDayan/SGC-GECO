@@ -17,8 +17,8 @@ import IndicatorMeasurementForm from "@/components/forms/IndicatorMeasurementFor
 const Index = () => {
   const [activeModal, setActiveModal] = useState<"upload_doc" | "record_indicator" | "create_audit" | null>(null);
 
-  // Consulta de estadísticas globales
-  const { data: stats, isLoading } = useQuery({
+  // 1. Consulta de estadísticas globales (Contadores)
+  const { data: stats, isLoading: isLoadingStats } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: async () => {
       const [docs, inds, audits, findings] = await Promise.all([
@@ -42,14 +42,33 @@ const Index = () => {
     }
   });
 
-  // Query adicional para pasar la lista de indicadores al formulario de carga
-  const { data: indicators = [] } = useQuery({
+  // 2. Consulta de Indicadores (Lista completa ordenada para Dashboard y Modal)
+  const { data: indicators = [], isLoading: isLoadingInds } = useQuery({
     queryKey: ["indicators-list"],
     queryFn: async () => {
-      const { data } = await supabase.from("indicators" as any).select("*");
+      const { data } = await supabase
+        .from("indicators" as any)
+        .select("*")
+        .order("created_at", { ascending: false }); // Ordenado: Último creado primero
       return data || [];
     }
   });
+
+  // 3. NUEVO: Consulta de Documentos Recientes (Solo los últimos 5)
+const { data: recentDocs = [] } = useQuery({
+  queryKey: ["recent-documents"],
+  queryFn: async () => {
+    const { data } = await supabase
+      .from("documents_view" as any) // CAMBIO: Usar la vista
+      .select("*")
+      .order("uploaded_at", { ascending: false }) // CAMBIO: Ordenar por fecha de subida
+      .limit(10);
+    
+    return (data || []) as any[];
+  }
+});
+
+  const isLoading = isLoadingStats || isLoadingInds;
 
   if (isLoading) {
     return (
@@ -96,13 +115,12 @@ const Index = () => {
         />
       </div>
 
-      
-
       {/* Main Grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Left Column - Documents */}
         <div className="lg:col-span-2">
-          <RecentDocuments />
+          {/* Pasamos los documentos reales al componente */}
+          <RecentDocuments documents={recentDocs} />
         </div>
 
         {/* Right Column */}
@@ -112,7 +130,8 @@ const Index = () => {
             onRecordIndicator={() => setActiveModal("record_indicator")}
             onCreateAudit={() => setActiveModal("create_audit")}
           />
-          <IndicatorProgress />
+          {/* Pasamos los indicadores reales al componente (mostramos los primeros 4 por ejemplo) */}
+          <IndicatorProgress indicators={indicators.slice(0, 5)} />
           <UpcomingAudits />
         </div>
       </div>
