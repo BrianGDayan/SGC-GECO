@@ -9,23 +9,26 @@ import IndicatorProgress from "@/components/dashboard/IndicatorProgress";
 import QuickActions from "@/components/dashboard/QuickActions";
 import UpcomingAudits from "@/components/dashboard/UpcomingAudits";
 
-// Diálogos y Formulario
+// Diálogos y Formularios
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import DocumentForm from "@/components/forms/DocumentForm";
 import IndicatorMeasurementForm from "@/components/forms/IndicatorMeasurementForm";
+import ProcessForm from "@/components/forms/ProcessForm";
+import FindingForm from "@/components/forms/FindingForm";
 
 const Index = () => {
-  const [activeModal, setActiveModal] = useState<"upload_doc" | "record_indicator" | "create_audit" | null>(null);
+  // Estado para controlar qué modal está activo
+  const [activeModal, setActiveModal] = useState<"upload_doc" | "record_indicator" | "new_finding" | "create_process" | null>(null);
 
-  // 1. Consulta de estadísticas globales (Contadores)
+  // 1. Consulta de estadísticas globales
   const { data: stats, isLoading: isLoadingStats } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: async () => {
-      const [docs, inds, audits, findings] = await Promise.all([
+      const [docs, inds, audits, findRes] = await Promise.all([
         supabase.from("documents" as any).select("*", { count: "exact", head: true }),
-        supabase.from("indicators" as any).select("status, current_value, target_value"),
+        supabase.from("indicators" as any).select("status"),
         supabase.from("audits" as any).select("status"),
-        supabase.from("audit_findings" as any).select("id").eq("status", "abierto")
+        supabase.from("findings" as any).select("id").eq("status", "abierto")
       ]);
 
       const indicators = (inds.data as any[]) || [];
@@ -37,38 +40,52 @@ const Index = () => {
         indsTotal: indicators.length,
         auditsDone: auditsData.filter(a => a.status === "completada").length,
         auditsTotal: auditsData.length,
-        findingsOpen: (findings.data as any[])?.length || 0
+        findingsOpen: (findRes.data as any[])?.length || 0
       };
     }
   });
 
-  // 2. Consulta de Indicadores (Lista completa ordenada para Dashboard y Modal)
+  // 2. Consulta de Indicadores (Lista para Dashboard y Modal)
   const { data: indicators = [], isLoading: isLoadingInds } = useQuery({
     queryKey: ["indicators-list"],
     queryFn: async () => {
       const { data } = await supabase
         .from("indicators" as any)
         .select("*")
-        .order("created_at", { ascending: false }); // Ordenado: Último creado primero
-      return data || [];
+        .order("created_at", { ascending: false });
+      return (data || []) as any[];
     }
   });
 
-  // 3. NUEVO: Consulta de Documentos Recientes (Solo los últimos 5)
-const { data: recentDocs = [] } = useQuery({
-  queryKey: ["recent-documents"],
-  queryFn: async () => {
-    const { data } = await supabase
-      .from("documents_view" as any) // CAMBIO: Usar la vista
-      .select("*")
-      .order("uploaded_at", { ascending: false }) // CAMBIO: Ordenar por fecha de subida
-      .limit(10);
-    
-    return (data || []) as any[];
-  }
-});
+  // 3. Consulta de Documentos Recientes
+  const { data: recentDocs = [] } = useQuery({
+    queryKey: ["recent-documents"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("documents_view" as any) 
+        .select("*")
+        .order("uploaded_at", { ascending: false }) 
+        .limit(10);
+      return (data || []) as any[];
+    }
+  });
 
-  const isLoading = isLoadingStats || isLoadingInds;
+  // 4. Consulta de Auditorías Próximas Reales
+  const { data: upcomingAudits = [], isLoading: isLoadingAudits } = useQuery({
+    queryKey: ["upcoming-audits"],
+    queryFn: async () => {
+      const now = new Date().toISOString();
+      const { data } = await supabase
+        .from("audits" as any)
+        .select("*")
+        .gt("scheduled_date", now)
+        .order("scheduled_date", { ascending: true })
+        .limit(5);
+      return (data || []) as any[];
+    }
+  });
+
+  const isLoading = isLoadingStats || isLoadingInds || isLoadingAudits;
 
   if (isLoading) {
     return (
@@ -88,60 +105,53 @@ const { data: recentDocs = [] } = useQuery({
         <StatCard
           title="Documentos Activos"
           value={stats?.docsTotal || 0}
-          description="Total en el sistema"
           icon={FileText}
           variant="primary"
         />
         <StatCard
           title="Indicadores"
           value={`${stats?.indsInMeta}/${stats?.indsTotal}`}
-          description="Cumpliendo meta"
           icon={BarChart3}
           variant="secondary"
         />
         <StatCard
           title="Auditorías"
           value={`${stats?.auditsDone}/${stats?.auditsTotal}`}
-          description="Completadas"
           icon={CheckCircle}
           variant="accent"
         />
         <StatCard
           title="No Conformidades"
           value={stats?.findingsOpen || 0}
-          description="Pendientes de cierre"
           icon={AlertTriangle}
           variant="default"
         />
       </div>
 
-      {/* Main Grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Left Column - Documents */}
+        {/* Lado Izquierdo - Documentos */}
         <div className="lg:col-span-2">
-          {/* Pasamos los documentos reales al componente */}
           <RecentDocuments documents={recentDocs} />
         </div>
 
-        {/* Right Column */}
+        {/* Lado Derecho - Acciones y Widgets */}
         <div className="space-y-6">
           <QuickActions 
             onUploadDoc={() => setActiveModal("upload_doc")}
             onRecordIndicator={() => setActiveModal("record_indicator")}
-            onCreateAudit={() => setActiveModal("create_audit")}
+            onNewFinding={() => setActiveModal("new_finding")}
+            onCreateProcess={() => setActiveModal("create_process")}
           />
-          {/* Pasamos los indicadores reales al componente (mostramos los primeros 4 por ejemplo) */}
           <IndicatorProgress indicators={indicators.slice(0, 5)} />
-          <UpcomingAudits />
+          <UpcomingAudits audits={upcomingAudits} />
         </div>
       </div>
 
       {/* MODAL: SUBIR DOCUMENTO */}
       <Dialog open={activeModal === "upload_doc"} onOpenChange={() => setActiveModal(null)}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Subir Nuevo Documento</DialogTitle>
-            <DialogDescription>Cargue un registro oficial al sistema documental.</DialogDescription>
           </DialogHeader>
           <DocumentForm onSuccess={() => setActiveModal(null)} />
         </DialogContent>
@@ -152,22 +162,29 @@ const { data: recentDocs = [] } = useQuery({
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Cargar Medición de Indicador</DialogTitle>
-            <DialogDescription>Actualice los valores actuales de desempeño.</DialogDescription>
           </DialogHeader>
           <IndicatorMeasurementForm indicators={indicators} onSuccess={() => setActiveModal(null)} />
         </DialogContent>
       </Dialog>
 
-      {/* MODAL: NUEVA AUDITORÍA / PROCEDIMIENTO */}
-      <Dialog open={activeModal === "create_audit"} onOpenChange={() => setActiveModal(null)}>
-        <DialogContent className="sm:max-w-md text-center py-10">
-          <AlertTriangle className="mx-auto h-12 w-12 text-warning mb-4" />
+      {/* MODAL: NUEVO HALLAZGO */}
+      <Dialog open={activeModal === "new_finding"} onOpenChange={() => setActiveModal(null)}>
+        <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Módulo en Desarrollo</DialogTitle>
-            <DialogDescription>
-              La creación de auditorías se habilitará una vez finalizada la configuración de hallazgos.
-            </DialogDescription>
+            <DialogTitle>Registrar Nuevo Hallazgo</DialogTitle>
+            <DialogDescription>Detección de desviaciones o mejoras fuera de auditorías.</DialogDescription>
           </DialogHeader>
+          <FindingForm onSuccess={() => setActiveModal(null)} />
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: CREAR PROCEDIMIENTO / PROCESO */}
+      <Dialog open={activeModal === "create_process"} onOpenChange={() => setActiveModal(null)}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Nuevo Proceso / Procedimiento</DialogTitle>
+          </DialogHeader>
+          <ProcessForm onSuccess={() => setActiveModal(null)} />
         </DialogContent>
       </Dialog>
 

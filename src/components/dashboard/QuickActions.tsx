@@ -1,43 +1,42 @@
-import { FilePlus, BarChart3, Calendar } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Upload, BarChart3, Search, FileText } from "lucide-react";
 
 interface QuickActionsProps {
   onUploadDoc: () => void;
   onRecordIndicator: () => void;
-  onCreateAudit: () => void;
+  onNewFinding: () => void;
+  onCreateProcess: () => void;
 }
 
-const QuickActions = ({ onUploadDoc, onRecordIndicator, onCreateAudit }: QuickActionsProps) => {
+const colorStyles = {
+  primary: "bg-primary/10 text-primary hover:bg-primary/20",
+  secondary: "bg-secondary/10 text-secondary hover:bg-secondary/20",
+  // CORRECCIÓN: Se agregó el estado hover que faltaba
+  destructive: "bg-destructive/10 text-destructive hover:bg-destructive/20",
+  accent: "bg-accent/10 text-accent hover:bg-accent/20",
+};
+
+const QuickActions = ({ onUploadDoc, onRecordIndicator, onNewFinding, onCreateProcess }: QuickActionsProps) => {
+  const actions = [
+    { icon: Upload, label: "Subir Documento", color: "primary", onClick: onUploadDoc },
+    { icon: BarChart3, label: "Registrar Indicador", color: "secondary", onClick: onRecordIndicator },
+    { icon: Search, label: "Nuevo Hallazgo", color: "destructive", onClick: onNewFinding },
+    { icon: FileText, label: "Crear Procedimiento", color: "accent", onClick: onCreateProcess },
+  ];
+
   return (
-    <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-      <h3 className="mb-4 font-semibold text-foreground">Acciones Rápidas</h3>
-      <div className="space-y-3">
-        <Button 
-          variant="outline" 
-          className="w-full justify-start gap-3 hover:bg-primary/5 hover:text-primary transition-colors" 
-          onClick={onUploadDoc}
-        >
-          <FilePlus className="h-4 w-4 text-primary" />
-          <span className="text-sm">Subir Documento</span>
-        </Button>
-        
-        <Button 
-          variant="outline" 
-          className="w-full justify-start gap-3 hover:bg-secondary/5 hover:text-secondary transition-colors" 
-          onClick={onRecordIndicator}
-        >
-          <BarChart3 className="h-4 w-4 text-secondary" />
-          <span className="text-sm">Registrar Indicador</span>
-        </Button>
-        
-        <Button 
-          variant="outline" 
-          className="w-full justify-start gap-3 hover:bg-primary/5 hover:text-primary transition-colors" 
-          onClick={onCreateAudit}
-        >
-          <Calendar className="h-4 w-4 text-primary" />
-          <span className="text-sm">Nueva Auditoría</span>
-        </Button>
+    <div className="rounded-xl border border-border bg-card p-6 shadow-sm animate-slide-up">
+      <h3 className="mb-4 text-lg font-semibold text-foreground">Acciones Rápidas</h3>
+      <div className="grid grid-cols-2 gap-3">
+        {actions.map((action) => (
+          <button
+            key={action.label}
+            onClick={action.onClick}
+            className={`flex flex-col items-center gap-2 rounded-lg p-4 text-center transition-all duration-200 ${colorStyles[action.color as keyof typeof colorStyles]}`}
+          >
+            <action.icon className="h-6 w-6" />
+            <span className="text-sm font-medium">{action.label}</span>
+          </button>
+        ))}
       </div>
     </div>
   );

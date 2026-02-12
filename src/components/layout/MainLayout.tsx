@@ -38,7 +38,11 @@ const MainLayout = ({ children, title, subtitle }: MainLayoutProps) => {
       <Sidebar />
       <div className="pl-64">
         <Header title={title} subtitle={subtitle} />
-        <main className="p-8">{children}</main>
+        <main className="p-8">
+          <div className="animate-fade-in w-full">
+            {children}
+          </div>
+        </main>
       </div>
     </div>
   );

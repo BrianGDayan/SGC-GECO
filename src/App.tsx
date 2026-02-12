@@ -10,6 +10,7 @@ import Indicadores from "./pages/Indicadores";
 import Procesos from "./pages/Procesos";
 import Auditorias from "./pages/Auditorias";
 import Usuarios from "./pages/Usuarios";
+import FindingDetail from "./pages/FindingDetail";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -29,8 +30,9 @@ const App = () => (
             <Route path="/indicadores" element={<Indicadores />} />
             <Route path="/procesos" element={<Procesos />} />
             <Route path="/auditorias" element={<Auditorias />} />
+            <Route path="/hallazgos/:id" element={<FindingDetail />} />
             <Route path="/usuarios" element={<Usuarios />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
