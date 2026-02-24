@@ -36,12 +36,9 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
     queryFn: async () => {
       const { data } = await supabase.from("processes" as any).select("id, name");
       return data || [];
-    },
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000
+    }
   });
 
-  // CORRECCIÓN: Traemos también el campo 'type' de la auditoría para filtrar
   const { data: audits = [] } = useQuery({
     queryKey: ["audits-list"],
     queryFn: async () => {
@@ -50,9 +47,6 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
     }
   });
 
-  // LOGICA DE FILTRADO: 
-  // Si circumstance es auditoria_externa -> busca audits type 'externa'
-  // Si circumstance es auditoria_interna -> busca audits type 'interna'
   const filteredAudits = audits.filter((a: any) => {
     if (form.circumstance === 'auditoria_externa') return a.type === 'externa';
     if (form.circumstance === 'auditoria_interna') return a.type === 'interna';
@@ -63,10 +57,10 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
     mutationFn: async () => {
       if (!user?.id) throw new Error("No autenticado");
 
+      // 1. Insertar el Hallazgo
       const { data: finding, error: fError } = await supabase
         .from("findings" as any)
         .insert([{
-          // CORRECCIÓN: La BD espera 'process', no 'process_id'
           process: parseInt(form.process_id), 
           audit_id: form.audit_id === "null" ? null : parseInt(form.audit_id),
           circumstance: form.circumstance,
@@ -82,6 +76,35 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
 
       if (fError) throw fError;
 
+      // 2. ACTUALIZAR CONTADORES EN LA AUDITORÍA
+      // Esto es crucial porque eliminamos el cálculo pesado en el frontend
+      if (form.audit_id && form.audit_id !== "null") {
+        const auditId = parseInt(form.audit_id);
+        
+        let columnToUpdate = "";
+        if (form.type === "no_conformidad") columnToUpdate = "findings_nc";
+        else if (form.type === "oportunidad_mejora") columnToUpdate = "findings_om";
+        else if (form.type === "observacion") columnToUpdate = "findings_observations";
+
+        if (columnToUpdate) {
+            // Obtener valor actual
+            const { data: auditData } = await supabase
+                .from("audits" as any)
+                .select(columnToUpdate)
+                .eq("id", auditId)
+                .single();
+            
+            const currentCount = auditData ? auditData[columnToUpdate] : 0;
+            
+            // Incrementar
+            await supabase
+                .from("audits" as any)
+                .update({ [columnToUpdate]: currentCount + 1 })
+                .eq("id", auditId);
+        }
+      }
+
+      // 3. Acción Inmediata
       if (form.immediate_action_desc) {
         const { error: aError } = await supabase
           .from("finding_actions" as any)
@@ -98,9 +121,7 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["findings"] });
-      // Invalidamos también process-content para que se actualice la tabla del detalle
-      queryClient.invalidateQueries({ queryKey: ["process-content"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["audits"] });
       toast.success("Hallazgo registrado correctamente");
       onSuccess();
     },
@@ -115,10 +136,7 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>Circunstancia</Label>
-          <Select 
-            value={form.circumstance} 
-            onValueChange={(v) => setForm({...form, circumstance: v, audit_id: "null"})} // Reseteamos audit_id al cambiar tipo
-          >
+          <Select value={form.circumstance} onValueChange={(v) => setForm({...form, circumstance: v, audit_id: "null"})}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="relevamiento_interno">Relevamiento Interno</SelectItem>
@@ -151,7 +169,6 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
           </Select>
         </div>
         
-        {/* CORRECCIÓN: Renderizado condicional del Select de Auditoría */}
         {isAudit && (
           <div className="space-y-2">
             <Label>Vincular Auditoría</Label>
@@ -159,7 +176,7 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
               <SelectTrigger><SelectValue placeholder="Seleccionar auditoría" /></SelectTrigger>
               <SelectContent>
                 {filteredAudits.length === 0 ? (
-                  <SelectItem value="null" disabled>No hay auditorías de este tipo</SelectItem>
+                  <SelectItem value="null" disabled>No hay auditorías disponibles</SelectItem>
                 ) : (
                   filteredAudits.map((a: any) => <SelectItem key={a.id} value={a.id.toString()}>{a.title}</SelectItem>)
                 )}
@@ -184,7 +201,7 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
             <AlertCircle className="h-4 w-4" /> Análisis de Causa Raíz
           </div>
           <Textarea 
-            placeholder="¿Por qué sucedió? (Método de los 5 porqués, Ishikawa, etc.)"
+            placeholder="¿Por qué sucedió?"
             value={form.root_cause_analysis}
             onChange={(e) => setForm({...form, root_cause_analysis: e.target.value})}
             className="bg-white"
@@ -193,25 +210,24 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
       )}
 
       <div className="space-y-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
-        <Label className="text-primary font-semibold uppercase text-xs">Acción Inmediata (Corrección)</Label>
+        <Label className="text-primary font-semibold uppercase text-xs">Acción Inmediata</Label>
         <Textarea 
-          placeholder="¿Qué se hizo o hará para mitigar el hallazgo ahora mismo?"
+          placeholder="¿Qué se hizo para mitigar?"
           value={form.immediate_action_desc}
           onChange={(e) => setForm({...form, immediate_action_desc: e.target.value})}
           className="bg-white"
         />
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label>Responsable Acción</Label>
+            <Label>Responsable</Label>
             <Input 
-              placeholder="Nombre o área" 
               value={form.immediate_action_resp}
               onChange={(e) => setForm({...form, immediate_action_resp: e.target.value})}
               className="bg-white"
             />
           </div>
           <div className="space-y-2">
-            <Label>Fecha Compromiso</Label>
+            <Label>Fecha</Label>
             <Input 
               type="date" 
               value={form.immediate_action_date}

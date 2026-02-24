@@ -3,30 +3,30 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { 
-  CheckCircle, Clock, Calendar, User, FileText, Plus, ChevronRight, 
-  ArrowLeft, Info, Loader2, AlertTriangle, Printer, X
+  CheckCircle, Clock, Calendar, User, AlertTriangle, Plus, 
+  ChevronRight, ArrowLeft, Printer, Loader2, Info, Edit
 } from "lucide-react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import AuditForm from "@/components/forms/AuditForm";
-// Asumiendo que reutilizamos FindingForm o tienes un AuditFindingForm específico
 import FindingForm from "@/components/forms/FindingForm"; 
+import { toast } from "sonner";
 
-// Estilos originales
-const statusStyles = {
+const statusStyles: any = {
   completada: { bg: "bg-success/10", text: "text-success", border: "border-success/20", icon: CheckCircle },
+  finalizada: { bg: "bg-success/10", text: "text-success", border: "border-success/20", icon: CheckCircle },
   "en curso": { bg: "bg-warning/10", text: "text-warning", border: "border-warning/20", icon: Clock },
   programada: { bg: "bg-primary/10", text: "text-primary", border: "border-primary/20", icon: Calendar },
+  pendiente: { bg: "bg-muted", text: "text-muted-foreground", border: "border-muted", icon: Calendar },
 };
 
-const typeStyles = {
+const typeStyles: any = {
   interna: "bg-secondary/10 text-secondary border-secondary/20",
   externa: "bg-primary/10 text-primary border-primary/20",
   revisión: "bg-accent/10 text-accent border-accent/20",
@@ -39,335 +39,271 @@ const Auditorias = () => {
   const [selectedAudit, setSelectedAudit] = useState<any>(null);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
   const [isFindingModalOpen, setIsFindingModalOpen] = useState(false);
+  const [auditToEdit, setAuditToEdit] = useState<any>(null);
 
-  // === DATA FETCHING (Lógica Real) ===
   const { data: audits = [], isLoading } = useQuery({
     queryKey: ["audits"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("audits" as any).select("*").order("scheduled_date", { ascending: false });
+      const { data, error } = await supabase
+        .from("audits" as any)
+        .select("*")
+        .order("scheduled_date", { ascending: false });
+      
       if (error) throw error;
-      return (data || []) as any[];
+      
+      const now = new Date();
+      const todayISO = now.toISOString().split('T')[0];
+
+      return (data || []).map((audit: any) => {
+        // Scope Logic
+        let scopeArray: string[] = ["General"];
+        if (Array.isArray(audit.scope)) {
+          scopeArray = audit.scope;
+        } else if (typeof audit.scope === 'string') {
+          const cleanString = audit.scope.replace(/^\{|\}$/g, ''); 
+          if (cleanString.trim().length > 0) scopeArray = cleanString.split(',').map((s: string) => s.trim().replace(/^"|"$/g, ''));
+        }
+
+        // Date & Status Logic
+        const auditDateOnly = audit.scheduled_date.includes('T') ? audit.scheduled_date.split('T')[0] : audit.scheduled_date;
+        const isPastDue = auditDateOnly < todayISO;
+        const computedProgress = isPastDue ? 100 : (audit.progress || 0);
+        const computedStatus = isPastDue ? "completada" : (audit.status || "programada").toLowerCase();
+
+        // --- CORRECCIÓN AQUÍ: Leemos 'type' directamente ---
+        const rawType = audit.type || "interna";
+
+        return {
+          ...audit,
+          id: audit.id,
+          name: audit.title,
+          status: computedStatus,
+          type: rawType.toLowerCase(), 
+          date: audit.scheduled_date,
+          auditor: audit.auditor || "Sin asignar",
+          scope: scopeArray,
+          progress: computedProgress,
+          isPastDue: isPastDue,
+          findings: {
+            nc: audit.findings_nc ?? 0,
+            om: audit.findings_om ?? 0,
+            obs: audit.findings_observations ?? 0
+          }
+        };
+      });
     }
   });
 
-  const { data: findings = [] } = useQuery({
+  const { data: findingsList = [] } = useQuery({
     queryKey: ["findings", selectedAudit?.id],
     queryFn: async () => {
       if (!selectedAudit) return [];
-      const { data, error } = await supabase.from("audit_findings" as any).select("*").eq("audit_id", selectedAudit.id);
-      if (error) throw error;
-      return (data || []) as any[];
+      const { data, error } = await supabase.from("findings" as any).select("*").eq("audit_id", selectedAudit.id);
+      if (error) return []; 
+      return data || [];
     },
     enabled: !!selectedAudit
   });
 
-  // Estadísticas reales calculadas
   const stats = {
     total: audits.length,
-    completadas: audits.filter((a: any) => a.status === "completada").length,
+    completadas: audits.filter((a: any) => ["completada", "finalizada"].includes(a.status)).length,
     enCurso: audits.filter((a: any) => a.status === "en curso").length,
-    programadas: audits.filter((a: any) => a.status === "programada").length,
+    programadas: audits.filter((a: any) => ["programada", "pendiente"].includes(a.status)).length,
   };
 
   const generatePDF = () => {
-    const doc = new jsPDF('l', 'mm', 'a4');
-    const primaryColor: [number, number, number] = [27, 95, 163]; 
-    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.rect(0, 0, 297, 40, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(22);
-    doc.text("REPORTE DE AUDITORÍA", 15, 25);
-    autoTable(doc, {
-      startY: 45,
-      head: [['Título', 'Auditor', 'Fecha', 'Resultado']],
-      body: [[selectedAudit.title, selectedAudit.auditor, selectedAudit.scheduled_date, `${selectedAudit.progress}%`]],
-      headStyles: { fillColor: primaryColor }
-    });
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 10,
-      head: [['Tipo', 'Proceso', 'Descripción', 'Acción Correctiva', 'Estado']],
-      body: findings.map((f: any) => [f.type?.toUpperCase(), f.process, f.description, f.corrective_action || "Pendiente", f.status?.toUpperCase()]),
-      headStyles: { fillColor: primaryColor },
-      columnStyles: { 2: { cellWidth: 70 }, 3: { cellWidth: 70 } }
-    });
-    doc.save(`Reporte_${selectedAudit.title}.pdf`);
+    if (!selectedAudit) return;
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text("Reporte de Auditoría", 14, 20);
+    doc.setFontSize(12);
+    doc.text(`Auditoría: ${selectedAudit.name}`, 14, 30);
+    doc.text(`Tipo: ${selectedAudit.type}`, 14, 38);
+    doc.text(`Fecha: ${new Date(selectedAudit.date).toLocaleDateString()}`, 14, 46);
+    if (findingsList.length > 0) {
+        const rows = findingsList.map((f: any) => {
+            let typeLabel = "Obs.";
+            if (f.type === 'no_conformidad') typeLabel = "NC";
+            if (f.type === 'oportunidad_mejora') typeLabel = "OM";
+            return [typeLabel, f.description, f.status];
+        });
+        autoTable(doc, { startY: 60, head: [['Tipo', 'Descripción', 'Estado']], body: rows });
+    } else doc.text("Sin hallazgos registrados.", 14, 60);
+    doc.save(`Reporte_${selectedAudit.name}.pdf`);
   };
 
-  if (isLoading) return <MainLayout title="Auditorías"><div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div></MainLayout>;
+  const handleEdit = () => {
+    if (selectedAudit.isPastDue) {
+        toast.error("La auditoría ya ha sido cerrada automáticamente y no se puede modificar.");
+        return;
+    }
+    setAuditToEdit(selectedAudit);
+    setIsAuditModalOpen(true);
+  };
 
-  // === VISTA DE DETALLE ===
+  if (isLoading) return <MainLayout title="Auditorías"><div className="flex h-96 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div></MainLayout>;
+
   if (selectedAudit) {
     const isClosed = selectedAudit.status === "completada";
+    const StatusIcon = statusStyles[selectedAudit.status]?.icon;
     
     return (
-      <MainLayout title={selectedAudit.title} subtitle={`Auditoría ${selectedAudit.type}`}>
-        <div className="flex justify-between items-center mb-6 animate-fade-in">
-          <Button variant="ghost" onClick={() => setSelectedAudit(null)} className="gap-2 pl-0 hover:pl-2 transition-all">
-            <ArrowLeft className="h-4 w-4" /> Volver
-          </Button>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={generatePDF} className="gap-2 border-primary text-primary hover:bg-primary/5"><Printer className="h-4 w-4" /> PDF</Button>
-            {!isClosed && isEditor && (
-              <Button 
-                onClick={async () => {
-                  await supabase.from("audits" as any).update({ status: "completada", progress: 100 }).eq("id", selectedAudit.id);
-                  queryClient.invalidateQueries({ queryKey: ["audits"] });
-                  setSelectedAudit({...selectedAudit, status: "completada", progress: 100});
-                }} 
-                className="gap-2 bg-secondary hover:bg-secondary-dark"
-              >
-                Finalizar Auditoría
-              </Button>
-            )}
-          </div>
-        </div>
-
-        <div className="mb-8 rounded-xl border border-border bg-card p-6 shadow-sm grid grid-cols-1 md:grid-cols-3 gap-8 animate-fade-in">
-          <div className="space-y-4">
-            <Label className="text-xs uppercase text-muted-foreground tracking-wide font-semibold">Información General</Label>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3 text-sm p-3 rounded-lg bg-muted/30">
-                <Calendar className="h-5 w-5 text-primary" />
-                <span className="font-medium text-foreground">{new Date(selectedAudit.scheduled_date).toLocaleDateString()}</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm p-3 rounded-lg bg-muted/30">
-                <User className="h-5 w-5 text-primary" />
-                <span className="font-medium text-foreground">{selectedAudit.auditor}</span>
-              </div>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <Label className="text-xs uppercase text-muted-foreground tracking-wide font-semibold">Alcance (Procesos)</Label>
-            <div className="flex flex-wrap gap-2 p-3 rounded-lg bg-muted/30 min-h-[100px] content-start">
-              {!selectedAudit.scope || selectedAudit.scope.length === 0 ? (
-                <span className="text-sm text-muted-foreground italic">Sin alcance definido.</span>
-              ) : (
-                selectedAudit.scope?.map((s: string) => <Badge key={s} variant="secondary" className="text-xs font-normal bg-background border">{s}</Badge>)
-              )}
-            </div>
-          </div>
-          <div className="space-y-4">
-            <Label className="text-xs uppercase text-muted-foreground tracking-wide font-semibold">Estado de Avance</Label>
-            <div className="p-4 rounded-lg bg-muted/30 text-center space-y-4">
-              <Badge className={cn("uppercase px-3 py-1 text-xs", statusStyles[selectedAudit.status as keyof typeof statusStyles]?.bg, statusStyles[selectedAudit.status as keyof typeof statusStyles]?.text)}>
-                {selectedAudit.status}
-              </Badge>
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs text-muted-foreground font-medium">
-                  <span>Progreso</span>
-                  <span>{selectedAudit.progress}%</span>
-                </div>
-                <Progress value={selectedAudit.progress} className="h-2" />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden animate-fade-in">
-          <div className="border-b p-6 flex items-center justify-between bg-muted/10">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-warning" />
-              <h2 className="text-lg font-bold text-foreground">Registro de Hallazgos</h2>
-            </div>
-            {!isClosed && isEditor && (
-              <Button onClick={() => setIsFindingModalOpen(true)} className="gap-2 bg-primary hover:bg-primary-dark shadow-sm">
-                <Plus className="h-4 w-4" /> Nuevo Hallazgo
-              </Button>
-            )}
-          </div>
-          
-          <div className="divide-y divide-border">
-            {findings.length === 0 ? (
-              <div className="p-12 text-center text-muted-foreground">No se han registrado hallazgos en esta auditoría.</div>
-            ) : (
-              findings.map((f: any) => (
-                <div key={f.id} className="group flex flex-col sm:flex-row items-start justify-between p-6 hover:bg-muted/5 transition-colors gap-4">
-                  <div className="flex items-start gap-4">
-                    <div className={cn("mt-1 p-2 rounded-full shrink-0 shadow-sm", f.type === 'mayor' ? "bg-destructive/10 text-destructive" : f.type === 'menor' ? "bg-warning/10 text-warning" : "bg-primary/10 text-primary")}>
-                      <Info className="h-5 w-5" />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className={cn("font-bold text-[10px] uppercase px-2 py-0.5 rounded border tracking-wide", f.type === 'mayor' ? "border-destructive/30 text-destructive bg-destructive/5" : f.type === 'menor' ? "border-warning/30 text-warning bg-warning/5" : "border-primary/30 text-primary bg-primary/5")}>
-                          {f.type}
-                        </span>
-                        <span className="text-xs text-muted-foreground font-medium flex items-center gap-1">
-                          <ChevronRight className="h-3 w-3" /> {f.process}
-                        </span>
-                      </div>
-                      <p className="text-sm font-medium text-foreground leading-relaxed">{f.description}</p>
-                      {f.corrective_action && (
-                        <div className="text-xs text-muted-foreground mt-2 pl-3 border-l-2 border-primary/20">
-                          <span className="font-semibold block mb-1">Acción Correctiva:</span> 
-                          {f.corrective_action}
+      <MainLayout title={selectedAudit.name} subtitle={`Auditoría ${selectedAudit.type}`}>
+        <div className="flex flex-col gap-4 mb-8 animate-fade-in">
+            <div><Button variant="ghost" size="sm" onClick={() => setSelectedAudit(null)} className="gap-1 pl-0 text-muted-foreground hover:text-foreground h-auto p-0 hover:bg-transparent"><ArrowLeft className="h-4 w-4" /> Volver al listado</Button></div>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-6">
+                <div className="flex items-center gap-4">
+                    <div className={cn("p-3 rounded-xl hidden sm:block", statusStyles[selectedAudit.status]?.bg)}><StatusIcon className={cn("h-6 w-6", statusStyles[selectedAudit.status]?.text)} /></div>
+                    <div>
+                        <h1 className="text-2xl font-bold text-foreground">{selectedAudit.name}</h1>
+                        <div className="flex items-center gap-2 mt-1.5">
+                            <Badge variant="outline" className={cn("capitalize font-medium border-primary/20 text-primary bg-primary/5", typeStyles[selectedAudit.type])}>{selectedAudit.type}</Badge>
+                            <Badge className={cn("capitalize shadow-none font-medium", statusStyles[selectedAudit.status]?.bg, statusStyles[selectedAudit.status]?.text)}>{selectedAudit.status}</Badge>
                         </div>
-                      )}
                     </div>
-                  </div>
-                  <Badge variant="outline" className={cn("uppercase text-[10px] whitespace-nowrap self-start sm:self-center", f.status === 'abierto' ? 'border-destructive text-destructive bg-destructive/5' : 'border-success text-success bg-success/5')}>
-                    {f.status}
-                  </Badge>
                 </div>
-              ))
-            )}
-          </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" onClick={generatePDF} className="gap-2 bg-background shadow-sm hover:bg-accent"><Printer className="h-4 w-4" /> <span className="hidden sm:inline">Exportar PDF</span></Button>
+                    {!isClosed && isEditor && (
+                        <>
+                            <Button onClick={() => setIsFindingModalOpen(true)} className="gap-2 bg-primary hover:bg-primary-dark shadow-sm"><Plus className="h-4 w-4" /> Nuevo Hallazgo</Button>
+                            <Button variant="secondary" onClick={handleEdit} className="gap-2 border shadow-sm hover:bg-muted"><Edit className="h-4 w-4" /> Modificar</Button>
+                        </>
+                    )}
+                </div>
+            </div>
         </div>
 
-        {/* Modal para Hallazgos dentro del detalle */}
-        <Dialog open={isFindingModalOpen} onOpenChange={setIsFindingModalOpen}>
-          <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Registrar Hallazgo</DialogTitle></DialogHeader>
-            {/* Aquí deberías adaptar FindingForm para recibir audit_id fijo o usar un AuditFindingForm */}
-            <div className="py-4 text-sm text-muted-foreground">
-               <p>Implementación del formulario de hallazgo de auditoría vinculada al ID: {selectedAudit.id}</p>
-               {/* <FindingForm ... /> */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 animate-slide-up" style={{ animationDelay: "100ms" }}>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">Datos Generales</h3>
+                <div className="space-y-3">
+                    <div className="flex items-center gap-3 text-sm group"><div className="p-2 rounded-lg bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors"><Calendar className="h-4 w-4" /></div><span className="font-medium text-foreground">{new Date(selectedAudit.date).toLocaleDateString()}</span></div>
+                    <div className="flex items-center gap-3 text-sm group"><div className="p-2 rounded-lg bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors"><User className="h-4 w-4" /></div><span className="font-medium text-foreground">{selectedAudit.auditor}</span></div>
+                </div>
             </div>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">Alcance Definido</h3>
+                <div className="flex flex-wrap gap-2 content-start">
+                    {selectedAudit.scope.map((s: string, idx: number) => <Badge key={idx} variant="secondary" className="px-2.5 py-1 text-xs font-medium bg-secondary/10 text-secondary-dark border-secondary/20 hover:bg-secondary/20">{s}</Badge>)}
+                </div>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm flex flex-col justify-center">
+                 <div className="flex justify-between items-end mb-2"><h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Progreso Global</h3><span className="text-2xl font-bold text-foreground">{selectedAudit.progress}%</span></div>
+                 <Progress value={selectedAudit.progress} className="h-2 w-full" />
+            </div>
+        </div>
+        
+        <div className="rounded-xl border border-border bg-card shadow-sm animate-slide-up" style={{ animationDelay: "200ms" }}>
+            <div className="p-6 border-b border-border flex items-center justify-between bg-muted/5">
+                <h3 className="font-bold text-lg flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-warning" /> Registro de Hallazgos</h3>
+                <Badge variant="secondary" className="font-normal">{findingsList.length} Registros</Badge>
+            </div>
+            <div className="divide-y divide-border">
+                {findingsList.length === 0 ? (
+                    <div className="py-12 text-center text-muted-foreground flex flex-col items-center">
+                        <div className="bg-muted/50 p-4 rounded-full mb-3"><Info className="h-8 w-8 text-muted-foreground/50" /></div>
+                        <p>No se han registrado hallazgos en esta auditoría.</p>
+                    </div>
+                ) : findingsList.map((f:any) => {
+                    let badgeLabel = "Obs.";
+                    let badgeColorClass = "border-primary text-primary bg-primary/5";
+                    if (f.type === 'no_conformidad') { badgeLabel = "NC"; badgeColorClass = "border-destructive text-destructive bg-destructive/5"; }
+                    else if (f.type === 'oportunidad_mejora') { badgeLabel = "OM"; badgeColorClass = "border-warning text-warning bg-warning/5"; }
+
+                    return (
+                        <div key={f.id} className="p-5 flex flex-col sm:flex-row sm:justify-between sm:items-start hover:bg-muted/5 transition-colors gap-4 group">
+                            <div className="flex gap-4 items-start">
+                                <div className={cn("mt-1 p-2 rounded-full h-fit shrink-0 shadow-sm", f.type === 'no_conformidad' ? "bg-destructive/10 text-destructive" : f.type === 'oportunidad_mejora' ? "bg-warning/10 text-warning" : "bg-primary/10 text-primary")}><AlertTriangle className="h-4 w-4" /></div>
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2 mb-1"><span className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1">{f.process || f.process_id || "General"}</span></div>
+                                    <p className="font-medium text-foreground text-base">{f.description}</p>
+                                    {f.corrective_action && (<div className="flex items-start gap-2 mt-2 text-sm text-muted-foreground bg-muted/30 p-2.5 rounded-lg border border-border/50"><CheckCircle className="h-4 w-4 text-success mt-0.5" /><div><span className="font-semibold text-foreground text-xs uppercase mr-1">Acción:</span>{f.corrective_action}</div></div>)}
+                                </div>
+                            </div>
+                            <Badge variant="outline" className={cn("capitalize whitespace-nowrap self-start sm:self-center px-3 py-1 text-xs font-medium", badgeColorClass)}>{badgeLabel}</Badge>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+
+        <Dialog open={isFindingModalOpen} onOpenChange={setIsFindingModalOpen}>
+          <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Registrar Hallazgo</DialogTitle></DialogHeader>
+            <FindingForm onSuccess={() => {
+                setIsFindingModalOpen(false);
+                queryClient.invalidateQueries({ queryKey: ["findings"] });
+                queryClient.invalidateQueries({ queryKey: ["audits"] });
+            }} />
           </DialogContent>
+        </Dialog>
+
+        <Dialog open={isAuditModalOpen} onOpenChange={setIsAuditModalOpen}>
+            <DialogContent className="sm:max-w-lg">
+                <DialogHeader><DialogTitle>{auditToEdit ? "Modificar Auditoría" : "Programar Auditoría"}</DialogTitle></DialogHeader>
+                <AuditForm onSuccess={() => { setIsAuditModalOpen(false); setAuditToEdit(null); setSelectedAudit(null); queryClient.invalidateQueries({ queryKey: ["audits"] }); }} initialData={auditToEdit} />
+            </DialogContent>
         </Dialog>
       </MainLayout>
     );
   }
 
-  // === VISTA PRINCIPAL (LISTA) ===
   return (
     <MainLayout title="Auditorías" subtitle="Planificación y seguimiento de auditorías">
-      
-      {/* STATS - RESTAURADO VISUALMENTE (Iconos grandes, negritas, sombras) */}
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-4 animate-fade-in">
-        <div className="rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:shadow-md">
-          <div className="flex items-center gap-4">
-            <div className="rounded-lg bg-primary/10 p-3">
-              <Calendar className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{stats.total}</p>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Total</p>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:shadow-md">
-          <div className="flex items-center gap-4">
-            <div className="rounded-lg bg-success/10 p-3">
-              <CheckCircle className="h-6 w-6 text-success" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{stats.completadas}</p>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Completadas</p>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:shadow-md">
-          <div className="flex items-center gap-4">
-            <div className="rounded-lg bg-warning/10 p-3">
-              <Clock className="h-6 w-6 text-warning" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{stats.enCurso}</p>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">En Curso</p>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:shadow-md">
-          <div className="flex items-center gap-4">
-            <div className="rounded-lg bg-muted p-3">
-              <Calendar className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{stats.programadas}</p>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Programadas</p>
-            </div>
-          </div>
-        </div>
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm hover:shadow-md transition-all"><div className="flex items-center gap-3"><div className="rounded-lg bg-primary/10 p-2"><Calendar className="h-5 w-5 text-primary" /></div><div><p className="text-2xl font-bold text-foreground">{stats.total}</p><p className="text-sm text-muted-foreground">Total Auditorías</p></div></div></div>
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm hover:shadow-md transition-all"><div className="flex items-center gap-3"><div className="rounded-lg bg-success/10 p-2"><CheckCircle className="h-5 w-5 text-success" /></div><div><p className="text-2xl font-bold text-foreground">{stats.completadas}</p><p className="text-sm text-muted-foreground">Completadas</p></div></div></div>
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm hover:shadow-md transition-all"><div className="flex items-center gap-3"><div className="rounded-lg bg-warning/10 p-2"><Clock className="h-5 w-5 text-warning" /></div><div><p className="text-2xl font-bold text-foreground">{stats.enCurso}</p><p className="text-sm text-muted-foreground">En Curso</p></div></div></div>
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm hover:shadow-md transition-all"><div className="flex items-center gap-3"><div className="rounded-lg bg-muted p-2"><Calendar className="h-5 w-5 text-muted-foreground" /></div><div><p className="text-2xl font-bold text-foreground">{stats.programadas}</p><p className="text-sm text-muted-foreground">Programadas</p></div></div></div>
       </div>
 
       <div className="mb-6 flex justify-end animate-fade-in">
         {isEditor && (
-          <Button onClick={() => setIsAuditModalOpen(true)} className="gap-2 bg-primary hover:bg-primary-dark shadow-sm h-10 px-4">
+            <Button className="gap-2 shadow-sm" onClick={() => { setAuditToEdit(null); setIsAuditModalOpen(true); }}>
             <Plus className="h-4 w-4" /> Programar Auditoría
-          </Button>
+            </Button>
         )}
       </div>
 
-      {/* LISTA DE AUDITORÍAS - RESTAURADA VISUALMENTE */}
       <div className="space-y-4 animate-fade-in">
-        {audits.map((audit, index) => {
-          const statusStyle = statusStyles[audit.status as keyof typeof statusStyles] || statusStyles.programada;
+        {audits.map((audit: any, index: number) => {
+          const statusStyle = statusStyles[audit.status] || statusStyles.programada;
           const StatusIcon = statusStyle.icon;
 
           return (
-            <div
-              key={audit.id}
-              onClick={() => setSelectedAudit(audit)}
-              className="group rounded-xl border border-border bg-card p-6 shadow-sm transition-all duration-300 hover:shadow-md hover:border-primary/30 cursor-pointer"
-              style={{ animationDelay: `${index * 50}ms` }}
-            >
+            <div key={audit.id} onClick={() => setSelectedAudit(audit)} className="group rounded-xl border border-border bg-card p-6 shadow-sm transition-all duration-300 hover:shadow-md hover:border-primary/30 cursor-pointer animate-slide-up" style={{ animationDelay: `${index * 50}ms` }}>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                {/* Main Info */}
-                <div className="flex items-start gap-5">
-                  {/* Icono Grande con Fondo de Color */}
-                  <div className={cn("rounded-xl p-3 shrink-0 transition-colors", statusStyle.bg)}>
-                    <StatusIcon className={cn("h-8 w-8", statusStyle.text)} />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="font-bold text-lg text-foreground group-hover:text-primary transition-colors">
-                        {audit.title}
-                      </h3>
-                      {/* Badge Tipo */}
-                      <Badge variant="outline" className={cn("capitalize text-xs font-normal", typeStyles[audit.type as keyof typeof typeStyles] || "bg-muted")}>
-                        {audit.type}
-                      </Badge>
-                    </div>
-
-                    {/* Meta Data Row */}
-                    <div className="flex flex-wrap gap-6 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-primary/70" />
-                        <span>{new Date(audit.scheduled_date).toLocaleDateString()}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-primary/70" />
-                        <span>{audit.auditor}</span>
-                      </div>
-                    </div>
-
-                    {/* Scope Badges */}
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {audit.scope && audit.scope.map((s: string) => (
-                        <Badge key={s} variant="secondary" className="text-[10px] font-normal bg-muted/50 text-muted-foreground border-transparent">
-                          {s}
-                        </Badge>
-                      ))}
-                    </div>
+                <div className="flex items-start gap-4">
+                  <div className={cn("rounded-lg p-3 transition-colors", statusStyle.bg)}><StatusIcon className={cn("h-6 w-6", statusStyle.text)} /></div>
+                  <div>
+                    <div className="flex items-center gap-2"><h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">{audit.name}</h3><Badge variant="outline" className={typeStyles[audit.type]}>{audit.type}</Badge></div>
+                    <div className="mt-1 flex flex-wrap gap-4 text-sm text-muted-foreground"><div className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(audit.date).toLocaleDateString()}</div><div className="flex items-center gap-1"><User className="h-4 w-4" />{audit.auditor}</div></div>
+                    <div className="mt-2 flex flex-wrap gap-1">{audit.scope.map((s: string, i: number) => <Badge key={i} variant="secondary" className="text-xs font-normal">{s}</Badge>)}</div>
                   </div>
                 </div>
-
-                {/* Progress Bar (Restaurada al diseño lateral) */}
-                <div className="flex items-center gap-6 w-full lg:w-auto pl-16 lg:pl-0 mt-2 lg:mt-0">
-                  <div className="w-full lg:w-40">
-                    <div className="mb-2 flex justify-between text-xs font-semibold uppercase tracking-wide">
-                      <span className="text-muted-foreground">Progreso</span>
-                      <span className={cn(audit.progress === 100 ? "text-success" : "text-primary")}>{audit.progress}%</span>
-                    </div>
-                    <Progress value={audit.progress} className="h-2.5" />
+                <div className="flex items-center gap-6">
+                  <div className="flex gap-4 text-sm">
+                    <div className="text-center"><p className={cn("text-lg font-semibold", audit.findings.nc > 0 ? "text-destructive" : "text-success")}>{audit.findings.nc}</p><p className="text-xs text-muted-foreground">NC</p></div>
+                    <div className="text-center"><p className={cn("text-lg font-semibold", audit.findings.om > 0 ? "text-warning" : "text-success")}>{audit.findings.om}</p><p className="text-xs text-muted-foreground">OM</p></div>
+                    <div className="text-center"><p className="text-lg font-semibold text-muted-foreground">{audit.findings.obs}</p><p className="text-xs text-muted-foreground">Obs.</p></div>
                   </div>
-                  <ChevronRight className="h-6 w-6 text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-all transform group-hover:translate-x-1" />
+                  <div className="w-32 hidden sm:block"><div className="mb-1 flex justify-between text-xs"><span className="text-muted-foreground">Progreso</span><span className="font-medium text-foreground">{audit.progress}%</span></div><Progress value={audit.progress} className="h-2" /></div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
               </div>
             </div>
           );
         })}
       </div>
-
-      {/* MODAL PROGRAMACIÓN */}
+      
       <Dialog open={isAuditModalOpen} onOpenChange={setIsAuditModalOpen}>
         <DialogContent className="sm:max-w-lg">
-          <DialogHeader><DialogTitle>Programar Auditoría</DialogTitle></DialogHeader>
-          <AuditForm onSuccess={() => setIsAuditModalOpen(false)} />
+          <DialogHeader><DialogTitle>{auditToEdit ? "Modificar Auditoría" : "Programar Auditoría"}</DialogTitle></DialogHeader>
+          <AuditForm onSuccess={() => { setIsAuditModalOpen(false); setAuditToEdit(null); }} initialData={auditToEdit} />
         </DialogContent>
       </Dialog>
-
     </MainLayout>
   );
 };

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,16 +11,38 @@ import { toast } from "sonner";
 
 interface AuditFormProps {
   onSuccess: () => void;
+  initialData?: any | null;
 }
 
-const AuditForm = ({ onSuccess }: AuditFormProps) => {
+const AuditForm = ({ onSuccess, initialData }: AuditFormProps) => {
   const queryClient = useQueryClient();
-  // Eliminamos useAuth para evitar conflictos de ID (UUID vs Integer)
-  
   const [selectedScope, setSelectedScope] = useState<string[]>([]);
+  
   const [auditForm, setAuditForm] = useState({ 
     title: "", scheduled_date: "", auditor: "", type: "interna", scope: "", progress: "0" 
   });
+
+  useEffect(() => {
+    if (initialData) {
+      setAuditForm({
+        title: initialData.title || initialData.name || "",
+        scheduled_date: initialData.scheduled_date || initialData.date || "",
+        auditor: initialData.auditor || "",
+        type: initialData.type || "interna",
+        scope: "", 
+        progress: (initialData.progress || 0).toString()
+      });
+      
+      let scopeArr: string[] = [];
+      if (Array.isArray(initialData.scope)) {
+        scopeArr = initialData.scope;
+      } else if (typeof initialData.scope === 'string') {
+        const clean = initialData.scope.replace(/^\{|\}$/g, '');
+        if (clean.trim()) scopeArr = clean.split(',').map((s: string) => s.trim().replace(/^"|"$/g, ''));
+      }
+      setSelectedScope(scopeArr);
+    }
+  }, [initialData]);
 
   const { data: processes = [] } = useQuery({
     queryKey: ["processes"],
@@ -32,58 +54,71 @@ const AuditForm = ({ onSuccess }: AuditFormProps) => {
 
   const saveAudit = useMutation({
     mutationFn: async () => {
-      // 1. Validaciones
       if (!auditForm.title) throw new Error("El título de la auditoría es obligatorio.");
 
       const progressNum = parseInt(auditForm.progress) || 0;
       
-      // 2. Crear Payload LIMPIO (Sin created_by/owner_id)
+      // Estado automático
+      const status = progressNum === 100 ? "completada" : (progressNum > 0 ? "en curso" : "programada");
+
       const payload = { 
-        ...auditForm, 
-        // Enviamos el scope como array de texto (nombres) para la columna 'scope' de la tabla 'audits'
+        title: auditForm.title,
+        scheduled_date: auditForm.scheduled_date,
+        auditor: auditForm.auditor,
+        type: auditForm.type,
         scope: selectedScope, 
         progress: progressNum,
-        status: progressNum === 100 ? "completada" : progressNum > 0 ? "en curso" : "programada",
-        // Eliminado created_by para evitar error "invalid input syntax for type integer"
+        status: status,
+        // updated_at: new Date().toISOString()  <-- ELIMINADA PARA EVITAR EL ERROR
       };
       
-      // 3. Insertar Auditoría Principal
-      const { data: audit, error: auditError } = await (supabase
-        .from("audits" as any)
-        .insert([payload])
-        .select()
-        .single() as any);
-      
-      if (auditError) throw auditError;
+      let auditId = initialData?.id;
 
-      // 4. Insertar Relaciones (Tabla Intermedia: audit_processes)
-      const processIds = processes
-        .filter(p => selectedScope.includes(p.name))
-        .map(p => p.id);
-      
-      if (processIds.length > 0) {
-        const relations = processIds.map(pId => ({ 
-          audit_id: audit.id, 
-          process_id: pId 
-        }));
+      if (initialData) {
+        // --- MODO ACTUALIZACIÓN ---
+        const { error } = await supabase
+          .from("audits" as any)
+          .update(payload)
+          .eq("id", initialData.id);
         
-        const { error: relError } = await supabase
-          .from("audit_processes" as any)
-          .insert(relations);
-          
-        if (relError) throw relError;
+        if (error) throw error;
+      } else {
+        // --- MODO CREACIÓN ---
+        const { data: newAudit, error } = await supabase
+          .from("audits" as any)
+          .insert([payload])
+          .select()
+          .single();
+        
+        if (error) throw error;
+        // Casteo seguro para obtener el ID
+        auditId = (newAudit as any).id;
+      }
+
+      // Gestionar relaciones audit_processes
+      if (auditId) {
+        if (initialData) {
+            await supabase.from("audit_processes" as any).delete().eq("audit_id", auditId);
+        }
+
+        const processIds = processes
+          .filter(p => selectedScope.includes(p.name))
+          .map(p => p.id);
+        
+        if (processIds.length > 0) {
+          const relations = processIds.map(pId => ({ audit_id: auditId, process_id: pId }));
+          const { error: relError } = await supabase.from("audit_processes" as any).insert(relations);
+          if (relError) console.warn("Error vinculando procesos:", relError);
+        }
       }
     },
     onSuccess: () => {
-      // Refrescar lista y notificar
       queryClient.invalidateQueries({ queryKey: ["audits"] });
-      toast.success("Auditoría programada correctamente");
-      // SOLO cerramos la modal si todo salió bien
+      toast.success(initialData ? "Auditoría modificada correctamente" : "Auditoría programada correctamente");
       onSuccess();
     },
     onError: (error: any) => {
-      // Mantenemos la modal abierta para que no pierdas los datos
-      toast.error("Error al programar auditoría: " + error.message);
+      toast.error("Error: " + error.message);
     }
   });
 
@@ -99,7 +134,7 @@ const AuditForm = ({ onSuccess }: AuditFormProps) => {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Fecha</Label>
+          <Label>Fecha Programada</Label>
           <Input 
             type="date" 
             value={auditForm.scheduled_date} 
@@ -151,20 +186,26 @@ const AuditForm = ({ onSuccess }: AuditFormProps) => {
         />
       </div>
       <div className="space-y-2">
-        <Label>Progreso Inicial (%)</Label>
-        <Input 
-          type="number" 
-          value={auditForm.progress} 
-          onChange={(e) => setAuditForm({...auditForm, progress: e.target.value})} 
-          min={0}
-          max={100}
-        />
+        <Label>Progreso Actual (%)</Label>
+        <div className="flex gap-4 items-center">
+            <Input 
+            type="number" 
+            value={auditForm.progress} 
+            onChange={(e) => setAuditForm({...auditForm, progress: e.target.value})} 
+            min={0}
+            max={100}
+            className="w-24"
+            />
+            <span className="text-xs text-muted-foreground">
+                Al llegar a 100%, la auditoría se marcará como <strong>Completada</strong>.
+            </span>
+        </div>
       </div>
       
       <div className="flex justify-end gap-3 mt-6">
         <Button variant="outline" onClick={onSuccess}>Cancelar</Button>
         <Button onClick={() => saveAudit.mutate()} disabled={saveAudit.isPending}>
-          {saveAudit.isPending ? "Guardando..." : "Confirmar"}
+          {saveAudit.isPending ? "Guardando..." : (initialData ? "Guardar Cambios" : "Programar")}
         </Button>
       </div>
     </div>
