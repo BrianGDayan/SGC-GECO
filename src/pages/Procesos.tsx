@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { 
   FileText, BarChart3, ChevronRight, ArrowLeft, Target, AlertTriangle, 
-  Loader2, Plus, Search, Filter, Eye, ClipboardList, Download, TrendingUp, TrendingDown, Minus
+  Loader2, Plus, Search, Filter, Eye, ClipboardList, Download, TrendingUp, TrendingDown, Minus, FileUp
 } from "lucide-react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -17,9 +17,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import ProcessForm from "@/components/forms/ProcessForm";
-// 1. IMPORTAMOS LOS FORMULARIOS EXISTENTES
 import IndicatorMeasurementForm from "@/components/forms/IndicatorMeasurementForm";
 import FindingForm from "@/components/forms/FindingForm";
+// NUEVAS IMPORTACIONES
+import DocumentVersionForm from "@/components/forms/DocumentVersionForm";
+import DocumentRecordsModal from "@/components/modals/DocumentRecordsModal";
 
 const PROCESS_HALLAZGOS_NAME = "Gestión de Hallazgos, No Conformidades y Acciones Correctivas y/o Preventivas";
 
@@ -34,6 +36,7 @@ const statusStyles = {
   "en revision": "bg-warning/10 text-warning border-warning/20",
   "en aprobacion": "bg-primary/10 text-primary border-primary/20",
   "no aprobado": "bg-destructive/10 text-destructive border-destructive/20",
+  obsoleto: "bg-muted text-muted-foreground border-border", // Agregado para consistencia
 };
 
 const getComplianceColor = (compliance: number) => {
@@ -50,16 +53,21 @@ const Procesos = () => {
   const [selectedProcess, setSelectedProcess] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [docStatusFilter, setDocStatusFilter] = useState("all");
+  
+  // Estados de Modales Generales
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
-  // 2. ESTADO PARA EL MODAL DE HALLAZGOS
   const [isFindingModalOpen, setIsFindingModalOpen] = useState(false);
+
+  // NUEVOS ESTADOS PARA DOCUMENTOS
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [isRecordsModalOpen, setIsRecordsModalOpen] = useState(false);
+  const [versioningDoc, setVersioningDoc] = useState<any>(null);
+  const [recordDoc, setRecordDoc] = useState<any>(null);
   
-  // 3. SCROLL AL TOP AL ENTRAR EN DETALLE
   useEffect(() => {
     if (selectedProcess) {
-      window.scrollTo(0, 0); // Scroll del body
-      // Si usas un contenedor con overflow (MainLayout), scrolleamos ese también
+      window.scrollTo(0, 0); 
       const main = document.querySelector('main'); 
       if (main) main.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -120,6 +128,17 @@ const Procesos = () => {
     const matchesStatus = docStatusFilter === "all" || doc.status === docStatusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  // Funciones para abrir modales de documentos
+  const openVersionModal = (doc: any) => { setVersioningDoc(doc); setIsVersionModalOpen(true); };
+  const openRecordsModal = (doc: any) => { setRecordDoc(doc); setIsRecordsModalOpen(true); };
+  
+  const closeDocModals = () => {
+    setIsVersionModalOpen(false);
+    setIsRecordsModalOpen(false);
+    setVersioningDoc(null);
+    setRecordDoc(null);
+  };
 
   if (isLoading) return <MainLayout title="Procesos"><div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div></MainLayout>;
 
@@ -215,12 +234,35 @@ const Procesos = () => {
                                 <td className="p-4"><Badge variant="outline" className={cn("text-[10px] uppercase font-bold", statusStyles[doc.status as keyof typeof statusStyles] || "bg-gray-100")}>{doc.status}</Badge></td>
                                 <td className="p-4 text-right">
                                   <div className="flex justify-end gap-1">
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                                    {/* 1. Botón Registros (Solo si es registro y vigente) */}
+                                    {doc.category === 'registro' && doc.status === 'vigente' && (
+                                        <Button 
+                                            variant="ghost" 
+                                            size="icon" 
+                                            className="h-8 w-8 text-blue-600 hover:bg-secondary hover:text-white transition-colors" 
+                                            onClick={() => openRecordsModal(doc)} 
+                                            title="Ver Registros Completados"
+                                        >
+                                            <ClipboardList className="h-4 w-4" />
+                                        </Button>
+                                    )}
+
+                                    {/* 2. Visualizar */}
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" asChild title="Ver documento">
                                       <a href={doc.file_url} target="_blank" rel="noreferrer"><Eye className="h-4 w-4" /></a>
                                     </Button>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDownload(doc.file_url, doc.title)}>
+
+                                    {/* 3. Descargar */}
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDownload(doc.file_url, doc.title)} title="Descargar documento">
                                       <Download className="h-4 w-4" />
                                     </Button>
+
+                                    {/* 4. Nueva Versión (Si no es obsoleto) */}
+                                    {doc.status !== 'obsoleto' && isEditor && (
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => openVersionModal(doc)} title="Nueva Versión de documento">
+                                            <FileUp className="h-4 w-4" />
+                                        </Button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -241,7 +283,6 @@ const Procesos = () => {
                             {isFindingProcess ? "Registro Global de Hallazgos" : "Hallazgos en este Proceso"}
                           </h3>
                         </div>
-                        {/* 4. BOTÓN NUEVO HALLAZGO (Solo en proceso de gestión) */}
                         {isFindingProcess && isEditor && (
                           <Button 
                             size="sm" 
@@ -299,7 +340,7 @@ const Procesos = () => {
                 </div>
 
                 <div className="space-y-6">
-                  {/* SECCIÓN INDICADORES (Estilo IndicatorProgress exacto) */}
+                  {/* SECCIÓN INDICADORES */}
                   <div className="rounded-xl border border-border bg-card shadow-sm animate-slide-up" style={{ animationDelay: "100ms" }}>
                     <div className="border-b border-border p-6 flex items-center justify-between">
                       <div>
@@ -317,7 +358,6 @@ const Procesos = () => {
                         <p className="p-6 text-center text-sm text-muted-foreground">No hay indicadores definidos.</p>
                       ) : (
                         detail.inds.map((ind: any) => {
-                          // Lógica de visualización (idéntica a IndicatorProgress)
                           const trendIcons = { up: TrendingUp, down: TrendingDown, stable: Minus };
                           const trendColors = { up: "text-success", down: "text-destructive", stable: "text-muted-foreground" };
                           
@@ -328,14 +368,11 @@ const Procesos = () => {
                           const target = ind.target_value || 1;
                           const unit = ind.unit || "";
 
-                          // Cálculo de progreso (menos es mejor para horas vs más es mejor para resto)
                           const progress = unit.toLowerCase().includes("hr") 
                             ? Math.min(100, ((target - val) / target) * 100 + 50)
                             : (val / target) * 100;
 
-                          const isOnTarget = unit.toLowerCase().includes("hr") 
-                            ? val <= target 
-                            : val >= target;
+                          const isOnTarget = unit.toLowerCase().includes("hr") ? val <= target : val >= target;
 
                           return (
                             <div key={ind.id} className="p-4 hover:bg-muted/30 transition-colors">
@@ -356,7 +393,7 @@ const Procesos = () => {
                     </div>
                   </div>
 
-                  {/* SECCIÓN SUBPROCESOS (Estilo unificado con el de arriba) */}
+                  {/* SECCIÓN SUBPROCESOS */}
                   <div className="rounded-xl border border-border bg-card shadow-sm animate-slide-up" style={{ animationDelay: "200ms" }}>
                     <div className="border-b border-border p-6">
                       <h3 className="text-lg font-semibold text-foreground">Subprocesos Vinculados</h3>
@@ -379,7 +416,7 @@ const Procesos = () => {
                 </div>
               </div>
 
-              {/* 5. USO DEL COMPONENTE DE CARGA DE INDICADORES */}
+              {/* MODALES EXISTENTES */}
               <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
                 <DialogContent className="sm:max-w-md">
                   <DialogHeader><DialogTitle>Cargar Medición</DialogTitle></DialogHeader>
@@ -393,7 +430,6 @@ const Procesos = () => {
                 </DialogContent>
               </Dialog>
 
-              {/* 6. USO DEL COMPONENTE DE NUEVO HALLAZGO */}
               <Dialog open={isFindingModalOpen} onOpenChange={setIsFindingModalOpen}>
                 <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
@@ -407,6 +443,29 @@ const Procesos = () => {
                   />
                 </DialogContent>
               </Dialog>
+
+              {/* NUEVOS MODALES DE DOCUMENTACIÓN */}
+              <Dialog open={isVersionModalOpen} onOpenChange={setIsVersionModalOpen}>
+                {/* AGREGADO: max-h-[90vh] overflow-y-auto */}
+                <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Generar Nueva Versión</DialogTitle>
+                    <DialogDescription>Cargar actualización para el documento maestro <strong>{versioningDoc?.code}</strong>.</DialogDescription>
+                  </DialogHeader>
+                  {versioningDoc && <DocumentVersionForm parentDoc={versioningDoc} onSuccess={() => {
+                      closeDocModals();
+                      queryClient.invalidateQueries({ queryKey: ["process-content"] });
+                  }} />}
+                </DialogContent>
+              </Dialog>
+
+              {recordDoc && (
+                <DocumentRecordsModal 
+                  document={recordDoc} 
+                  isOpen={isRecordsModalOpen} 
+                  onClose={closeDocModals} 
+                />
+              )}
 
             </div>
           )}

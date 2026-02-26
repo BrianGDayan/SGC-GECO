@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { 
   ArrowLeft, Calendar, User, MapPin, CheckCircle, Clock, AlertTriangle, 
-  Plus, Save, ShieldCheck, FileText 
+  Plus, Save, ShieldCheck, FileText, History, XCircle
 } from "lucide-react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -26,14 +26,16 @@ const FindingDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  
   const [isActionModalOpen, setIsActionModalOpen] = useState(false);
   const [rootCause, setRootCause] = useState("");
-  const [efficacyData, setEfficacyData] = useState({ date: "", result: "no", comments: "" });
   
-  // Estado para nueva acción
-  const [newAction, setNewAction] = useState({ type: "correctiva", desc: "", resp: "", date: "" });
+  // Estado para evaluación de eficacia
+  const [efficacyData, setEfficacyData] = useState({ date: "", result: "", comments: "" });
+  
+  // Estado para nueva acción (ahora incluye la nueva fecha de evaluación de eficacia)
+  const [newAction, setNewAction] = useState({ type: "correctiva", desc: "", resp: "", date: "", newEvalDate: "" });
 
-  // 1. OBTENER DATOS DEL HALLAZGO Y SUS ACCIONES
   const { data: finding, isLoading } = useQuery({
     queryKey: ["finding", id],
     queryFn: async () => {
@@ -42,23 +44,27 @@ const FindingDetail = () => {
         .select(`
           *,
           processes (name),
-          finding_actions (*)
+          finding_actions (*),
+          finding_evaluations (*)
         `)
         .eq("id", id)
         .single();
       
       if (error) throw error;
-      
-      // SOLUCIÓN DEL ERROR: Forzamos el tipo aquí
       return data as any;
     },
   });
 
-  // Determinar si es No Conformidad y si está abierto
+  // Pre-rellenar la fecha de evaluación cuando cargue el hallazgo
+  useEffect(() => {
+    if (finding?.efficacy_eval_date) {
+      setEfficacyData(prev => ({ ...prev, date: finding.efficacy_eval_date }));
+    }
+  }, [finding?.efficacy_eval_date]);
+
   const isNC = finding?.type === "no_conformidad";
   const isOpen = finding?.status === "abierto";
 
-  // MUTATION: ACTUALIZAR ANÁLISIS DE CAUSA
   const updateRootCauseMutation = useMutation({
     mutationFn: async () => {
       await supabase.from("findings" as any).update({ root_cause_analysis: rootCause }).eq("id", id);
@@ -66,9 +72,9 @@ const FindingDetail = () => {
     onSuccess: () => toast.success("Análisis de causa actualizado")
   });
 
-  // MUTATION: AGREGAR ACCIÓN
   const addActionMutation = useMutation({
     mutationFn: async () => {
+      // 1. Insertar la acción
       await supabase.from("finding_actions" as any).insert([{
         finding_id: id,
         action_type: newAction.type,
@@ -77,16 +83,20 @@ const FindingDetail = () => {
         target_date: newAction.date,
         status: "pendiente"
       }]);
+
+      // 2. Si se definió una nueva fecha de evaluación, actualizar el hallazgo maestro
+      if (newAction.newEvalDate) {
+        await supabase.from("findings" as any).update({ efficacy_eval_date: newAction.newEvalDate }).eq("id", id);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["finding", id] });
       setIsActionModalOpen(false);
-      setNewAction({ type: "correctiva", desc: "", resp: "", date: "" });
-      toast.success("Acción agregada");
+      setNewAction({ type: "correctiva", desc: "", resp: "", date: "", newEvalDate: "" });
+      toast.success("Acción agregada y fecha de evaluación actualizada");
     }
   });
 
-  // MUTATION: COMPLETAR ACCIÓN
   const completeActionMutation = useMutation({
     mutationFn: async (actionId: number) => {
       await supabase.from("finding_actions" as any)
@@ -99,33 +109,46 @@ const FindingDetail = () => {
     }
   });
 
-  // MUTATION: CERRAR HALLAZGO (EVALUAR EFICACIA)
-  const closeFindingMutation = useMutation({
+  const evaluateFindingMutation = useMutation({
     mutationFn: async () => {
-      // Si es NC y eficacia es NO, no se cierra
-      if (isNC && efficacyData.result === "no") {
-         throw new Error("Si no es eficaz, debe agregar nuevas acciones correctivas.");
+      const isEffective = efficacyData.result === "si";
+
+      await supabase.from("finding_evaluations" as any).insert([{
+        finding_id: id,
+        evaluation_date: efficacyData.date,
+        is_effective: isEffective,
+        comments: efficacyData.comments
+      }]);
+
+      if (isEffective) {
+        await supabase.from("findings" as any).update({ 
+          status: "cerrado",
+          efficacy_eval_date: efficacyData.date,
+          is_efficacious: true
+        }).eq("id", id);
+      } else {
+        await supabase.from("findings" as any).update({ 
+          is_efficacious: false,
+        }).eq("id", id);
       }
-      
-      await supabase.from("findings" as any).update({ 
-        status: "cerrado",
-        efficacy_eval_date: efficacyData.date,
-        is_efficacious: isNC ? (efficacyData.result === "si") : null
-      }).eq("id", id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["finding", id] });
-      toast.success("Hallazgo cerrado exitosamente");
+      if (efficacyData.result === "si") {
+        toast.success("Hallazgo cerrado exitosamente");
+      } else {
+        toast.warning("Evaluación registrada como NO EFICAZ. Se requiere agregar una nueva acción.");
+        setEfficacyData({ date: "", result: "", comments: "" });
+      }
     },
-    onError: (e) => toast.error(e.message)
+    onError: (e) => toast.error("Error: " + e.message)
   });
 
   if (isLoading) return <MainLayout title="Cargando..."><div className="p-8">Cargando expediente...</div></MainLayout>;
-  
   if (!finding) return <MainLayout title="Error"><div className="p-8">Hallazgo no encontrado.</div></MainLayout>;
 
-  // Separar acciones (Aseguramos que sea array para evitar errores si viene null)
   const actions = finding.finding_actions || [];
+  const evaluations = finding.finding_evaluations || [];
   const immediateActions = actions.filter((a: any) => a.action_type === "inmediata");
   const correctiveActions = actions.filter((a: any) => a.action_type === "correctiva");
   const allActionsClosed = actions.length > 0 && actions.every((a: any) => a.status === "finalizado");
@@ -143,10 +166,9 @@ const FindingDetail = () => {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         
-        {/* COLUMNA IZQUIERDA: DETALLES Y ANÁLISIS */}
+        {/* COLUMNA IZQUIERDA */}
         <div className="lg:col-span-2 space-y-6">
           
-          {/* TARJETA PRINCIPAL: EL HALLAZGO */}
           <div className="rounded-xl border border-border bg-card shadow-sm">
             <div className="border-b p-6 flex justify-between items-start">
               <div>
@@ -159,8 +181,8 @@ const FindingDetail = () => {
                 {finding.status?.toUpperCase()}
               </Badge>
             </div>
-            <div className="p-6 space-y-6">
-              <div className="grid grid-cols-2 gap-4 text-sm">
+         <div className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                 <div>
                   <p className="text-muted-foreground">Proceso Origen</p>
                   <p className="font-medium">{finding.processes?.name || "General"}</p>
@@ -170,15 +192,8 @@ const FindingDetail = () => {
                   <p className="font-medium capitalize">{finding.circumstance?.replace(/_/g, " ")}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Detectado por</p>
-                  <div className="flex items-center gap-2">
-                    <User className="h-4 w-4 text-muted-foreground" />
-                    <span>Usuario ID: {finding.detected_by?.slice(0, 8)}...</span>
-                  </div>
-                </div>
-                <div>
                   <p className="text-muted-foreground">Fecha Detección</p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 font-medium">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
                     <span>{new Date(finding.detection_date).toLocaleDateString()}</span>
                   </div>
@@ -192,18 +207,16 @@ const FindingDetail = () => {
             </div>
           </div>
 
-          {/* SECCIÓN: ANÁLISIS DE CAUSA (SOLO NC) */}
-          <div className="rounded-xl border border-border bg-card shadow-sm">
-            <div className="border-b p-4 flex items-center gap-2 bg-muted/20">
-              <AlertTriangle className={cn("h-5 w-5", isNC ? "text-destructive" : "text-muted-foreground")} />
-              <h3 className="font-semibold text-sm">Análisis de Causa Raíz</h3>
-            </div>
-            <div className="p-6">
-              {isNC ? (
+          {/* ANÁLISIS DE CAUSA (Solo NC) */}
+          {isNC && (
+            <div className="rounded-xl border border-border bg-card shadow-sm">
+              <div className="border-b p-4 flex items-center gap-2 bg-muted/20">
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+                <h3 className="font-semibold text-sm">Análisis de Causa Raíz</h3>
+              </div>
+              <div className="p-6">
                 <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Utilice metodologías como 5 Porqués o Ishikawa para determinar la causa raíz.
-                  </p>
+                  <p className="text-sm text-muted-foreground">Detalle la causa de la no conformidad</p>
                   {isOpen ? (
                     <>
                       <Textarea 
@@ -222,75 +235,65 @@ const FindingDetail = () => {
                     <p className="text-sm italic p-3 bg-muted rounded">{finding.root_cause_analysis || "Sin análisis registrado."}</p>
                   )}
                 </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-6 text-muted-foreground opacity-60">
-                  <ShieldCheck className="h-10 w-10 mb-2" />
-                  <p className="text-sm font-medium">No Aplica</p>
-                  <p className="text-xs">Observaciones y Oportunidades de Mejora no requieren Análisis de Causa.</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* SECCIÓN: ACCIONES CORRECTIVAS (SOLO NC) */}
-          <div className="rounded-xl border border-border bg-card shadow-sm">
-            <div className="border-b p-4 flex items-center justify-between bg-muted/20">
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-primary" />
-                <h3 className="font-semibold text-sm">Plan de Acción Correctiva</h3>
               </div>
-              {isNC && isOpen && (
-                <Button size="sm" variant="outline" onClick={() => { setNewAction({...newAction, type: "correctiva"}); setIsActionModalOpen(true); }}>
-                  <Plus className="h-4 w-4 mr-2" /> Agregar Acción
-                </Button>
-              )}
             </div>
-            <div className="p-0">
-              {isNC ? (
-                <div className="divide-y">
-                  {correctiveActions.length === 0 ? (
-                    <p className="p-6 text-center text-sm text-muted-foreground">No hay acciones correctivas definidas.</p>
-                  ) : (
-                    correctiveActions.map((action: any) => (
-                      <div key={action.id} className="p-4 flex items-start justify-between hover:bg-muted/10 transition-colors">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium">{action.description}</p>
-                          <div className="flex gap-4 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1"><User className="h-3 w-3" /> {action.responsibles}</span>
-                            <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Vence: {action.target_date}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {action.status === "pendiente" ? (
-                             isOpen && <Button size="sm" variant="ghost" className="text-primary hover:bg-primary/10" onClick={() => completeActionMutation.mutate(action.id)}>Marcar Listo</Button>
-                          ) : (
-                            <Badge variant="outline" className="bg-success/10 text-success border-success/20 gap-1">
-                              <CheckCircle className="h-3 w-3" /> Completado
-                            </Badge>
-                          )}
+          )}
+
+          {/* ACCIONES CORRECTIVAS (Solo NC) */}
+          {isNC && (
+            <div className="rounded-xl border border-border bg-card shadow-sm">
+              <div className="border-b p-4 flex items-center justify-between bg-muted/20">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  <h3 className="font-semibold text-sm">Plan de Acción Correctiva</h3>
+                </div>
+                {isOpen && (
+                  <Button size="sm" variant="outline" onClick={() => { setNewAction({...newAction, type: "correctiva", newEvalDate: finding.efficacy_eval_date || ""}); setIsActionModalOpen(true); }}>
+                    <Plus className="h-4 w-4 mr-2" /> Agregar Acción
+                  </Button>
+                )}
+              </div>
+              <div className="divide-y">
+                {correctiveActions.length === 0 ? (
+                  <p className="p-6 text-center text-sm text-muted-foreground">No hay acciones correctivas definidas.</p>
+                ) : (
+                  correctiveActions.map((action: any) => (
+                    <div key={action.id} className="p-4 flex items-start justify-between hover:bg-muted/10 transition-colors">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">{action.description}</p>
+                        <div className="flex gap-4 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1"><User className="h-3 w-3" /> {action.responsibles}</span>
+                          <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Vence: {action.target_date}</span>
                         </div>
                       </div>
-                    ))
-                  )}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground opacity-60">
-                  <p className="text-sm font-medium">No Aplica</p>
-                  <p className="text-xs">No se requieren acciones correctivas complejas.</p>
-                </div>
-              )}
+                      <div className="flex items-center gap-2">
+                        {action.status === "pendiente" ? (
+                           isOpen && <Button size="sm" variant="ghost" className="text-primary hover:bg-primary/10" onClick={() => completeActionMutation.mutate(action.id)}>Marcar Listo</Button>
+                        ) : (
+                          <Badge variant="outline" className="bg-success/10 text-success border-success/20 gap-1"><CheckCircle className="h-3 w-3" /> Completado</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
-        {/* COLUMNA DERECHA: ESTADO Y ACCIONES INMEDIATAS */}
+        {/* COLUMNA DERECHA */}
         <div className="space-y-6">
           
-          {/* ACCIONES INMEDIATAS (CORRECCIÓN) */}
+          {/* ACCIONES INMEDIATAS */}
           <div className="rounded-xl border border-border bg-card shadow-sm">
             <div className="border-b p-4 flex items-center justify-between">
-              <h3 className="font-semibold text-sm">Corrección Inmediata</h3>
-              {isOpen && <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => { setNewAction({...newAction, type: "inmediata"}); setIsActionModalOpen(true); }}><Plus className="h-4 w-4" /></Button>}
+              <h3 className="font-semibold text-sm">Acción Inmediata</h3>
+              {/* REGLA 2: Ocultar botón "+" si es NC (solo permite una inmediata) */}
+              {isOpen && !isNC && (
+                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => { setNewAction({...newAction, type: "inmediata", newEvalDate: finding.efficacy_eval_date || ""}); setIsActionModalOpen(true); }}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              )}
             </div>
             <div className="p-4 space-y-4">
               {immediateActions.length === 0 ? (
@@ -303,9 +306,7 @@ const FindingDetail = () => {
                        <span className="text-xs text-muted-foreground">{action.responsibles}</span>
                        {action.status === "pendiente" ? (
                          isOpen && <Button size="icon" variant="ghost" className="h-6 w-6 text-primary" onClick={() => completeActionMutation.mutate(action.id)}><CheckCircle className="h-4 w-4" /></Button>
-                       ) : (
-                         <CheckCircle className="h-4 w-4 text-success" />
-                       )}
+                       ) : <CheckCircle className="h-4 w-4 text-success" />}
                     </div>
                   </div>
                 ))
@@ -313,52 +314,83 @@ const FindingDetail = () => {
             </div>
           </div>
 
+          {/* HISTORIAL DE EVALUACIONES */}
+          {evaluations.length > 0 && (
+            <div className="rounded-xl border border-border bg-card shadow-sm">
+              <div className="border-b p-4 bg-muted/20">
+                <h3 className="font-semibold text-sm">Historial de Evaluaciones</h3>
+              </div>
+              <div className="divide-y">
+                {evaluations.map((evalItem: any) => (
+                  <div key={evalItem.id} className="p-3 text-sm hover:bg-muted/10">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs text-muted-foreground">{new Date(evalItem.evaluation_date).toLocaleDateString()}</span>
+                      <Badge variant={evalItem.is_effective ? "default" : "destructive"} className={cn("text-[10px] h-5", evalItem.is_effective ? "bg-success hover:bg-success" : "")}>
+                        {evalItem.is_effective ? "EFICAZ" : "NO EFICAZ"}
+                      </Badge>
+                    </div>
+                    {evalItem.comments && <p className="text-xs italic text-muted-foreground">"{evalItem.comments}"</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* CIERRE Y EFICACIA */}
           <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
             <div className="p-4 bg-primary/5 border-b border-primary/10">
-              <h3 className="font-semibold text-sm text-primary">Cierre del Hallazgo</h3>
+              <h3 className="font-semibold text-sm text-primary">Evaluación de Eficacia</h3>
             </div>
             <div className="p-6 space-y-4">
               {isOpen ? (
                 <>
                   <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">Para cerrar el hallazgo, todas las acciones deben estar finalizadas.</p>
-                    {isNC && <p className="text-xs text-destructive font-semibold">Requiere evaluación de eficacia.</p>}
+                    <p className="text-xs text-muted-foreground">
+                      Fecha programada original: <strong>{finding.efficacy_eval_date ? new Date(finding.efficacy_eval_date).toLocaleDateString() : 'No definida'}</strong>
+                    </p>
+                    <p className="text-xs text-muted-foreground">Para evaluar eficacia, todas las acciones deben estar finalizadas.</p>
                   </div>
 
                   {allActionsClosed ? (
                     <div className="space-y-4 pt-4 border-t">
                       <div className="space-y-2">
-                        <label className="text-xs font-medium">Fecha Evaluación</label>
-                        <Input type="date" onChange={(e) => setEfficacyData({...efficacyData, date: e.target.value})} />
+                        <label className="text-xs font-medium">Fecha de Evaluación Final</label>
+                        <Input type="date" value={efficacyData.date} onChange={(e) => setEfficacyData({...efficacyData, date: e.target.value})} />
                       </div>
                       
-                      {isNC && (
-                        <div className="space-y-2">
-                          <label className="text-xs font-medium">¿Fue Eficaz?</label>
-                          <Select onValueChange={(v) => setEfficacyData({...efficacyData, result: v})}>
-                            <SelectTrigger><SelectValue placeholder="Seleccione..." /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="si">SI - Cerrar Hallazgo</SelectItem>
-                              <SelectItem value="no">NO - Requiere nueva acción</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium">Resultado</label>
+                        <Select onValueChange={(v) => setEfficacyData({...efficacyData, result: v})}>
+                          <SelectTrigger><SelectValue placeholder="¿Fue eficaz?" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="si">SI - Cerrar Hallazgo</SelectItem>
+                            <SelectItem value="no">NO - Requiere nueva acción</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium">Comentarios</label>
+                        <Textarea 
+                          className="h-20 text-xs" 
+                          placeholder="Justificación del resultado..."
+                          onChange={(e) => setEfficacyData({...efficacyData, comments: e.target.value})} 
+                        />
+                      </div>
 
                       <Button 
                         className="w-full" 
-                        variant={efficacyData.result === "no" ? "outline" : "default"}
-                        onClick={() => closeFindingMutation.mutate()}
-                        disabled={!efficacyData.date || (isNC && !efficacyData.result)}
+                        variant={efficacyData.result === "no" ? "destructive" : "default"}
+                        onClick={() => evaluateFindingMutation.mutate()}
+                        disabled={!efficacyData.date || !efficacyData.result}
                       >
-                        {efficacyData.result === "no" ? "Registrar Intento Fallido" : "Cerrar Hallazgo"}
+                        {efficacyData.result === "no" ? "Registrar Fallo y Continuar" : "Cerrar Hallazgo"}
                       </Button>
                     </div>
                   ) : (
                     <div className="rounded bg-warning/10 p-3 flex gap-2 items-start">
                       <Clock className="h-4 w-4 text-warning mt-0.5" />
-                      <p className="text-xs text-warning-foreground">Hay acciones pendientes. Complételas para habilitar el cierre.</p>
+                      <p className="text-xs text-warning-foreground">Hay acciones pendientes. Complételas para habilitar la evaluación.</p>
                     </div>
                   )}
                 </>
@@ -368,7 +400,7 @@ const FindingDetail = () => {
                     <CheckCircle className="h-6 w-6 text-success" />
                   </div>
                   <h4 className="font-bold text-success">Cerrado</h4>
-                  {finding.is_efficacious && <p className="text-xs text-muted-foreground mt-1">Evaluado como Eficaz el {finding.efficacy_eval_date}</p>}
+                  <p className="text-xs text-muted-foreground mt-1">Evaluado Eficazmente el {finding.efficacy_eval_date}</p>
                 </div>
               )}
             </div>
@@ -377,7 +409,7 @@ const FindingDetail = () => {
         </div>
       </div>
 
-      {/* MODAL PARA AGREGAR ACCIÓN */}
+      {/* MODAL PARA AGREGAR ACCIÓN (INCLUYE NUEVA FECHA DE EFICACIA) */}
       <Dialog open={isActionModalOpen} onOpenChange={setIsActionModalOpen}>
         <DialogContent>
           <DialogHeader>
@@ -398,9 +430,17 @@ const FindingDetail = () => {
                  <Input type="date" onChange={(e) => setNewAction({...newAction, date: e.target.value})} />
               </div>
             </div>
+            {/* REGLA 1: Nueva fecha de evaluación al programar nueva acción */}
+            <div className="space-y-2 mt-4 pt-4 border-t border-border">
+              <label className="text-sm font-medium text-primary">Reprogramar Fecha de Evaluación de Eficacia</label>
+              <Input type="date" value={newAction.newEvalDate} onChange={(e) => setNewAction({...newAction, newEvalDate: e.target.value})} />
+              <p className="text-[10px] text-muted-foreground">Nueva fecha para verificar si esta acción dio resultado.</p>
+            </div>
           </div>
           <DialogFooter>
-            <Button onClick={() => addActionMutation.mutate()} disabled={addActionMutation.isPending}>Guardar Acción</Button>
+            <Button onClick={() => addActionMutation.mutate()} disabled={addActionMutation.isPending || !newAction.desc || !newAction.newEvalDate}>
+              Guardar Acción
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
