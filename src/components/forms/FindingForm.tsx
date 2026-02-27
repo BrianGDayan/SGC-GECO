@@ -157,7 +157,7 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
     <div className="space-y-6 py-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label>Circunstancia</Label>
+          <Label>Origen</Label>
           <Select 
             value={form.circumstance} 
             onValueChange={(v) => setForm({...form, circumstance: v, audit_id: "null"})} 

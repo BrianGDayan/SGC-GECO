@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { 
   ArrowLeft, Calendar, User, MapPin, CheckCircle, Clock, AlertTriangle, 
-  Plus, Save, ShieldCheck, FileText, History, XCircle
+  Plus, Save, ShieldCheck, FileText, History, XCircle, ChevronDown, ChevronRight
 } from "lucide-react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,8 @@ const FindingDetail = () => {
   
   // Estado para nueva acción (ahora incluye la nueva fecha de evaluación de eficacia)
   const [newAction, setNewAction] = useState({ type: "correctiva", desc: "", resp: "", date: "", newEvalDate: "" });
+
+  const [expandedEval, setExpandedEval] = useState<number | null>(null);
 
   const { data: finding, isLoading } = useQuery({
     queryKey: ["finding", id],
@@ -188,7 +190,7 @@ const FindingDetail = () => {
                   <p className="font-medium">{finding.processes?.name || "General"}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Circunstancia</p>
+                  <p className="text-muted-foreground">Origen</p>
                   <p className="font-medium capitalize">{finding.circumstance?.replace(/_/g, " ")}</p>
                 </div>
                 <div>
@@ -320,18 +322,59 @@ const FindingDetail = () => {
               <div className="border-b p-4 bg-muted/20">
                 <h3 className="font-semibold text-sm">Historial de Evaluaciones</h3>
               </div>
-              <div className="divide-y">
-                {evaluations.map((evalItem: any) => (
-                  <div key={evalItem.id} className="p-3 text-sm hover:bg-muted/10">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-xs text-muted-foreground">{new Date(evalItem.evaluation_date).toLocaleDateString()}</span>
-                      <Badge variant={evalItem.is_effective ? "default" : "destructive"} className={cn("text-[10px] h-5", evalItem.is_effective ? "bg-success hover:bg-success" : "")}>
-                        {evalItem.is_effective ? "EFICAZ" : "NO EFICAZ"}
-                      </Badge>
+              <div className="divide-y divide-border">
+                {[...evaluations].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map((evalItem: any) => {
+                  
+                  // Lógica para encontrar la acción asociada (la más reciente antes de esta evaluación)
+                  const associatedAction = actions
+                    .slice()
+                    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                    .find((a: any) => new Date(a.created_at) < new Date(evalItem.created_at));
+
+                  const isExpanded = expandedEval === evalItem.id;
+
+                  return (
+                    <div key={evalItem.id} className="flex flex-col">
+                      <div 
+                        className="p-3 text-sm hover:bg-muted/10 cursor-pointer flex flex-col gap-1 transition-colors"
+                        onClick={() => setExpandedEval(isExpanded ? null : evalItem.id)}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                            <span className="text-xs font-medium text-foreground">{new Date(evalItem.evaluation_date).toLocaleDateString()}</span>
+                          </div>
+                          <Badge variant={evalItem.is_effective ? "default" : "destructive"} className={cn("text-[10px] h-5", evalItem.is_effective ? "bg-success hover:bg-success" : "")}>
+                            {evalItem.is_effective ? "EFICAZ" : "NO EFICAZ"}
+                          </Badge>
+                        </div>
+                        {evalItem.comments && <p className="text-xs italic text-muted-foreground pl-6">"{evalItem.comments}"</p>}
+                      </div>
+                      
+                      {/* ACCIÓN ASOCIADA DESPLEGABLE */}
+                      {isExpanded && (
+                        <div className="px-3 pb-3 pt-2 bg-muted/5 border-t border-border/50 animate-fade-in">
+                          {associatedAction ? (
+                            <div className="pl-6 space-y-1">
+                              <p className="text-[10px] font-semibold text-primary uppercase tracking-wider">
+                                Acción Evaluada ({associatedAction.action_type})
+                              </p>
+                              <p className="text-xs text-foreground">{associatedAction.description}</p>
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <User className="h-3 w-3 text-muted-foreground" />
+                                <span className="text-[10px] text-muted-foreground font-medium">{associatedAction.responsibles}</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="pl-6">
+                              <p className="text-xs text-muted-foreground italic">No se encontró una acción previa registrada.</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {evalItem.comments && <p className="text-xs italic text-muted-foreground">"{evalItem.comments}"</p>}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

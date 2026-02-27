@@ -15,7 +15,7 @@ interface DocumentVersionFormProps {
 }
 
 const DocumentVersionForm = ({ parentDoc, onSuccess }: DocumentVersionFormProps) => {
-  const { userData } = useAuth();
+  const { user } = useAuth(); // Cambiado a 'user' para mantener consistencia con DocumentForm
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -26,43 +26,55 @@ const DocumentVersionForm = ({ parentDoc, onSuccess }: DocumentVersionFormProps)
 
   const updateMutation = useMutation({
     mutationFn: async () => {
-      if (!userData) throw new Error("No autenticado");
+      const authUuid = user?.id;
+      if (!authUuid) throw new Error("No estás autenticado.");
       if (!selectedFile) throw new Error("Archivo requerido para nueva versión");
 
-      // 1. Subir nuevo archivo
-      const path = `${crypto.randomUUID()}.${selectedFile.name.split('.').pop()}`;
-      const { error: upErr } = await supabase.storage.from('documents').upload(path, selectedFile);
+      const masterDocumentId = parentDoc.doc_id; // El UUID real desde documents_view
+
+      if (!masterDocumentId) {
+        throw new Error("No se pudo identificar el documento maestro.");
+      }
+
+      // 1. SUBIR NUEVO ARCHIVO A STORAGE
+      const fileExt = selectedFile.name.split('.').pop();
+      const filePath = `${crypto.randomUUID()}.${fileExt}`;
+      const { error: upErr } = await supabase.storage.from('documents').upload(filePath, selectedFile);
       if (upErr) throw upErr;
-      const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(path);
+      
+      const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(filePath);
 
-      // 2. Marcar versiones anteriores como obsoletas
-      await supabase
-        .from("document_versions" as any)
-        .update({ status: "obsoleto" })
-        .eq("document_id", parentDoc.doc_id) // Usamos el ID del maestro (document_id)
-        .neq("status", "obsoleto");
-
-      // 3. Insertar nueva versión
-      const { error: verErr } = await supabase.from("document_versions" as any).insert({
-        document_id: parentDoc.doc_id, // Vinculado al maestro existente
+      // 2. INSERTAR NUEVA VERSIÓN (Primero, por seguridad)
+      const { error: verErr } = await supabase.from("document_versions" as any).insert([{
+        document_id: masterDocumentId,
         revision: nextRevision,
         file_url: publicUrl,
         status: "vigente",
         description: description || `Actualización a Rev ${nextRevision}`,
-        uploaded_by: userData.id
-      });
+        uploaded_by: authUuid // UUID Directo, igual que en DocumentForm
+      }]);
       
       if (verErr) throw verErr;
 
-      // 4. Actualizar file_name global en el maestro si cambió (Opcional, según tu requerimiento)
-      await supabase.from("documents" as any).update({ file_name: selectedFile.name }).eq("id", parentDoc.doc_id);
+      // 3. MARCAR VERSIONES ANTERIORES COMO OBSOLETAS
+      await supabase
+        .from("document_versions" as any)
+        .update({ status: "obsoleto" })
+        .eq("document_id", masterDocumentId)
+        .lt("revision", nextRevision); // Todo lo menor a la nueva versión
+
+      // 4. ACTUALIZAR NOMBRE DE ARCHIVO EN LA TABLA MAESTRA
+      await supabase
+        .from("documents" as any)
+        .update({ file_name: selectedFile.name })
+        .eq("id", masterDocumentId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
-      toast.success(`Versión ${nextRevision} generada`);
+      toast.success(`Versión ${nextRevision} generada correctamente`);
       onSuccess();
     },
-    onError: (e: any) => toast.error(e.message)
+    onError: (e: any) => toast.error("Error al generar versión: " + e.message)
   });
 
   const handleDrag = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(e.type === "dragenter" || e.type === "dragover"); };
@@ -90,8 +102,8 @@ const DocumentVersionForm = ({ parentDoc, onSuccess }: DocumentVersionFormProps)
         </div>
       </div>
 
-      <Button className="w-full bg-primary" onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending || !selectedFile}>
-        {updateMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Subiendo...</> : "Actualizar Documento"}
+      <Button className="w-full bg-primary hover:bg-primary-dark" onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending || !selectedFile}>
+        {updateMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Procesando...</> : "Actualizar Documento"}
       </Button>
     </div>
   );

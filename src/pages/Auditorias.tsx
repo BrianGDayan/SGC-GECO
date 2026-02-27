@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom"; // <-- AGREGADO
 import { 
   CheckCircle, Clock, Calendar, User, AlertTriangle, Plus, 
-  ChevronRight, ArrowLeft, Printer, Loader2, Info, Edit
+  ChevronRight, ArrowLeft, Printer, Loader2, Info, Edit, Eye // <-- AGREGADO Eye
 } from "lucide-react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ const typeStyles: any = {
 const Auditorias = () => {
   const queryClient = useQueryClient();
   const { isEditor } = useAuth();
+  const navigate = useNavigate(); // <-- AGREGADO
   
   const [selectedAudit, setSelectedAudit] = useState<any>(null);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
@@ -70,7 +72,6 @@ const Auditorias = () => {
         const computedProgress = isPastDue ? 100 : (audit.progress || 0);
         const computedStatus = isPastDue ? "completada" : (audit.status || "programada").toLowerCase();
 
-        // --- CORRECCIÓN AQUÍ: Leemos 'type' directamente ---
         const rawType = audit.type || "interna";
 
         return {
@@ -214,7 +215,7 @@ const Auditorias = () => {
 
                     return (
                         <div key={f.id} className="p-5 flex flex-col sm:flex-row sm:justify-between sm:items-start hover:bg-muted/5 transition-colors gap-4 group">
-                            <div className="flex gap-4 items-start">
+                            <div className="flex gap-4 items-start flex-1">
                                 <div className={cn("mt-1 p-2 rounded-full h-fit shrink-0 shadow-sm", f.type === 'no_conformidad' ? "bg-destructive/10 text-destructive" : f.type === 'oportunidad_mejora' ? "bg-warning/10 text-warning" : "bg-primary/10 text-primary")}><AlertTriangle className="h-4 w-4" /></div>
                                 <div className="space-y-1">
                                     <div className="flex items-center gap-2 mb-1"><span className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1">{f.process || f.process_id || "General"}</span></div>
@@ -222,7 +223,22 @@ const Auditorias = () => {
                                     {f.corrective_action && (<div className="flex items-start gap-2 mt-2 text-sm text-muted-foreground bg-muted/30 p-2.5 rounded-lg border border-border/50"><CheckCircle className="h-4 w-4 text-success mt-0.5" /><div><span className="font-semibold text-foreground text-xs uppercase mr-1">Acción:</span>{f.corrective_action}</div></div>)}
                                 </div>
                             </div>
-                            <Badge variant="outline" className={cn("capitalize whitespace-nowrap self-start sm:self-center px-3 py-1 text-xs font-medium", badgeColorClass)}>{badgeLabel}</Badge>
+                            
+                            {/* CAJA DE ACCIONES Y BADGES (Alineada a la derecha en desktop) */}
+                            <div className="flex items-center gap-4 self-start sm:self-center shrink-0">
+                                <Badge variant="outline" className={cn("capitalize whitespace-nowrap px-3 py-1 text-xs font-medium", badgeColorClass)}>{badgeLabel}</Badge>
+                                
+                                {/* BOTÓN DE VER DETALLE (AGREGADO) */}
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8 text-primary hover:bg-primary/10"
+                                  onClick={() => navigate(`/hallazgos/${f.id}`)}
+                                  title="Ver detalle del hallazgo"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                            </div>
                         </div>
                     );
                 })}

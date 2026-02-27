@@ -29,20 +29,27 @@ const MainLayout = ({ children, title, subtitle }: MainLayoutProps) => {
     );
   }
 
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-background">
-      <Sidebar />
-      <div className="pl-64">
+    <div className="flex h-screen w-full overflow-hidden bg-background">
+      
+      <aside className="w-64 shrink-0 hidden md:block border-r bg-card z-50">
+        <Sidebar />
+      </aside>
+
+      {/* Agregamos overflow-hidden aquí para asegurar que la columna no empuje la pantalla */}
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        
         <Header title={title} subtitle={subtitle} />
-        <main className="p-8">
+
+        {/* CORRECCIÓN: Cambiamos a overflow-auto para permitir scroll horizontal y vertical de forma natural */}
+        <main className="flex-1 overflow-auto p-8 bg-background/50">
           <div className="animate-fade-in w-full">
             {children}
           </div>
         </main>
+        
       </div>
     </div>
   );
