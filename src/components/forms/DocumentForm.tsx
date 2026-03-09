@@ -26,7 +26,8 @@ interface DocumentFormProps {
 }
 
 const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
-  const { user } = useAuth(); 
+  // EXTRAEMOS isAdmin y user de nuestro nuevo hook
+  const { user, isAdmin } = useAuth(); 
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -34,7 +35,6 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
   const [form, setForm] = useState({
     title: editingDoc?.title || "",
     category: editingDoc?.category || "",
-    // Usamos el ID para el estado, si estamos editando intentamos cargarlo
     process_id: editingDoc?.process_id?.toString() || "", 
     docNumber: editingDoc?.code?.split('-')[1] || "",
     status: editingDoc?.status || "en revision",
@@ -43,40 +43,50 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  // Obtener lista de procesos
+  // Obtener lista de procesos FILTRADA por permisos
   const { data: processes = [] } = useQuery({
     queryKey: ["processes"],
-    queryFn: async () => {
-      const { data } = await (supabase.from("processes" as any).select("id, name") as any);
-      return (data || []) as any[];
+    queryFn: async (): Promise<any[]> => {
+      // Pedimos manager_ids a la BD
+      const { data, error } = await supabase.from("processes" as any).select("id, name, manager_ids");
+      if (error) throw error;
+      
+      const allProcesses = (data || []) as any[];
+
+      // Si es Admin, ve y puede asignar documentos a cualquier proceso
+      if (isAdmin) {
+        return allProcesses;
+      } else {
+        // Si es Editor (jefe), solo ve los procesos donde su ID está en el array manager_ids
+        return allProcesses.filter(p => 
+          p.manager_ids && user?.id && p.manager_ids.includes(user.id)
+        );
+      }
     }
   });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      // 1. Usamos el UUID directo de Supabase Auth
       const authUuid = user?.id; 
       if (!authUuid) throw new Error("No estás autenticado.");
 
-      // Buscamos el nombre del proceso seleccionado para guardarlo también (compatibilidad)
-      const selectedProcess = processes.find(p => p.id.toString() === form.process_id);
+      const selectedProcess = processes.find((p: any) => p.id.toString() === form.process_id);
       const processName = selectedProcess ? selectedProcess.name : "";
 
-      // CASO 1: EDICIÓN (Solo modifica metadatos)
+      // CASO 1: EDICIÓN
       if (editingDoc) {
         const { error } = await supabase
           .from("documents" as any)
           .update({
             title: form.title,
             category: form.category,
-            process_id: parseInt(form.process_id), // Guardamos el ID
-            process: processName // Guardamos el nombre (legacy/vista)
+            process_id: parseInt(form.process_id),
+            process: processName
           })
           .eq("id", editingDoc.doc_id);
         
         if (error) throw error;
         
-        // Si cambió la descripción, actualizamos la versión
         if (form.description !== editingDoc.description) {
              await supabase
             .from("document_versions" as any)
@@ -114,12 +124,10 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
             code: generatedCode, 
             title: form.title, 
             category: form.category,
-            
-            process_id: parseInt(form.process_id), // RELACIÓN REAL (ID)
-            process: processName, // TEXTO (Compatibilidad)
-            
+            process_id: parseInt(form.process_id), 
+            process: processName, 
             file_name: selectedFile.name,
-            created_by: authUuid // UUID Directo
+            created_by: authUuid 
         }])
         .select()
         .single();
@@ -135,7 +143,7 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
             file_url: publicUrl,
             status: form.status,
             description: form.description,
-            uploaded_by: authUuid // UUID Directo
+            uploaded_by: authUuid 
         }]);
 
       if (versionErr) throw versionErr;
@@ -187,8 +195,7 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
             <SelectValue placeholder="Seleccionar proceso" />
           </SelectTrigger>
           <SelectContent>
-            {processes.map((p) => (
-                // AHORA usamos p.id como value
+            {processes.map((p: any) => (
                 <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
             ))}
           </SelectContent>
@@ -228,7 +235,6 @@ const DocumentForm = ({ editingDoc, onSuccess }: DocumentFormProps) => {
               <SelectItem value="vigente">Vigente</SelectItem>
               <SelectItem value="en revision">En Revisión</SelectItem>
               <SelectItem value="en aprobacion">En Aprobación</SelectItem>
-              <SelectItem value="no aprobado">No Aprobado</SelectItem>
             </SelectContent>
           </Select>
         </div>

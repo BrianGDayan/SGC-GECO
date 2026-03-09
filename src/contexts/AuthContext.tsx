@@ -2,7 +2,8 @@ import { useState, useEffect, createContext, ReactNode } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
-export type AppRole = "editor" | "lector";
+// 1. ACTUALIZAMOS LOS ROLES PERMITIDOS
+export type AppRole = "admin" | "editor" | "colaborador" | "auditor";
 
 export interface SgcUser {
   id: number;
@@ -21,7 +22,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, fullName?: string) => Promise<{ data: any, error: any }>;
   signOut: () => Promise<void>;
-  isEditor: boolean;
+  role?: AppRole | null; // Agregamos el rol puro
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -43,7 +44,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
 
       if (data) {
-        // FIX: Doble casteo para evitar el error ts(2352)
         setUserData(data as unknown as SgcUser);
         
         supabase
@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) fetchUserData(session.user.id);
-      setLoading(false);
+      else setLoading(false); // Corregido para que no se quede colgado cargando si no hay sesión
     });
 
     return () => subscription.unsubscribe();
@@ -86,7 +86,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } });
 
   return (
-    <AuthContext.Provider value={{ user, session, userData, loading, signIn, signUp, signOut, isEditor: userData?.role === "editor" }}>
+    // 2. EXPORTAMOS EL ROL DIRECTAMENTE
+    <AuthContext.Provider value={{ 
+        user, 
+        session, 
+        userData, 
+        loading, 
+        signIn, 
+        signUp, 
+        signOut, 
+        role: userData?.role 
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, AlertCircle, Zap, ShieldAlert, CalendarCheck } from "lucide-react";
+import { Loader2, Zap, ShieldAlert, CalendarCheck } from "lucide-react";
 
 interface FindingFormProps {
   onSuccess: () => void;
@@ -32,7 +32,6 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
     corrective_action_desc: "",
     corrective_action_resp: "",
     corrective_action_date: "",
-    // NUEVO CAMPO: Fecha de evaluación de eficacia
     efficacy_eval_date: "",
   });
 
@@ -64,18 +63,18 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
     mutationFn: async () => {
       if (!user?.id) throw new Error("No autenticado");
 
-      // 1. Insertar el Hallazgo (Incluyendo la fecha de evaluación de eficacia)
+      // CAMBIO AQUÍ: Usamos process_id en lugar de process
       const { data: finding, error: fError } = await supabase
         .from("findings" as any)
         .insert([{
-          process: parseInt(form.process_id),
+          process_id: parseInt(form.process_id),
           audit_id: form.audit_id === "null" ? null : parseInt(form.audit_id),
           circumstance: form.circumstance,
           type: form.type,
           detection_date: form.detection_date,
           description: form.description,
           root_cause_analysis: form.type === "no_conformidad" ? form.root_cause_analysis : null,
-          efficacy_eval_date: form.efficacy_eval_date || null, // Se asigna la fecha
+          efficacy_eval_date: form.efficacy_eval_date || null,
           detected_by: user.id,
           status: "abierto"
         }])
@@ -86,7 +85,6 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
 
       const findingId = (finding as any).id;
 
-      // 2. Insertar Acción Inmediata (Siempre presente)
       if (form.immediate_action_desc) {
         const { error: aError } = await supabase
           .from("finding_actions" as any)
@@ -101,7 +99,6 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
         if (aError) throw aError;
       }
 
-      // 3. Insertar Acción Correctiva (Solo NC)
       if (form.type === "no_conformidad" && form.corrective_action_desc) {
         const { error: cError } = await supabase
           .from("finding_actions" as any)
@@ -116,7 +113,6 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
         if (cError) throw cError;
       }
 
-      // 4. Actualizar contadores en Auditoría
       if (form.audit_id && form.audit_id !== "null") {
         const auditId = parseInt(form.audit_id);
         let columnToUpdate = "";
@@ -220,7 +216,6 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
         />
       </div>
 
-      {/* ACCIÓN INMEDIATA */}
       <div className="space-y-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
         <div className="flex items-center gap-2 text-primary font-semibold text-sm uppercase">
           <Zap className="h-4 w-4" /> Acción Inmediata
@@ -253,7 +248,6 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
         </div>
       </div>
 
-      {/* BLOQUE NO CONFORMIDAD */}
       {isNC && (
         <div className="space-y-6 rounded-lg border border-destructive/20 bg-destructive/5 p-4 animate-fade-in">
           <div className="flex items-center gap-2 text-destructive font-semibold text-sm uppercase border-b border-destructive/20 pb-2">
@@ -302,7 +296,6 @@ const FindingForm = ({ onSuccess }: FindingFormProps) => {
         </div>
       )}
 
-      {/* NUEVO BLOQUE: FECHA DE EVALUACIÓN DE EFICACIA */}
       <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
         <div className="flex items-center gap-2 text-foreground font-semibold text-sm uppercase">
           <CalendarCheck className="h-4 w-4" /> Planificación de Cierre

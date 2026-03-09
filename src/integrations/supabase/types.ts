@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -14,118 +14,516 @@ export type Database = {
   }
   public: {
     Tables: {
-      audits: {
+      audit_processes: {
         Row: {
-          audit_type: string
-          auditor_id: string | null
-          created_at: string
-          description: string | null
-          findings_count: number | null
-          id: string
-          scheduled_date: string
-          status: string
-          title: string
-          updated_at: string
+          audit_id: number
+          process_id: number
         }
         Insert: {
-          audit_type?: string
-          auditor_id?: string | null
-          created_at?: string
-          description?: string | null
-          findings_count?: number | null
-          id?: string
-          scheduled_date: string
-          status?: string
-          title: string
-          updated_at?: string
+          audit_id: number
+          process_id: number
         }
         Update: {
-          audit_type?: string
-          auditor_id?: string | null
-          created_at?: string
-          description?: string | null
-          findings_count?: number | null
-          id?: string
-          scheduled_date?: string
-          status?: string
-          title?: string
-          updated_at?: string
+          audit_id?: number
+          process_id?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "audit_processes_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_processes_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "process_compliance"
+            referencedColumns: ["process_id"]
+          },
+          {
+            foreignKeyName: "audit_processes_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_processes_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes_view"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audits: {
+        Row: {
+          auditor: string | null
+          created_at: string
+          created_by: number | null
+          findings_nc: number | null
+          findings_observations: number | null
+          findings_om: number | null
+          id: number
+          progress: number | null
+          scheduled_date: string
+          scope: string[] | null
+          status: string | null
+          title: string
+          type: string | null
+        }
+        Insert: {
+          auditor?: string | null
+          created_at?: string
+          created_by?: number | null
+          findings_nc?: number | null
+          findings_observations?: number | null
+          findings_om?: number | null
+          id?: number
+          progress?: number | null
+          scheduled_date: string
+          scope?: string[] | null
+          status?: string | null
+          title: string
+          type?: string | null
+        }
+        Update: {
+          auditor?: string | null
+          created_at?: string
+          created_by?: number | null
+          findings_nc?: number | null
+          findings_observations?: number | null
+          findings_om?: number | null
+          id?: number
+          progress?: number | null
+          scheduled_date?: string
+          scope?: string[] | null
+          status?: string | null
+          title?: string
+          type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audits_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_audits_created_by"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      document_records: {
+        Row: {
+          description: string | null
+          document_id: string | null
+          file_name: string
+          file_url: string
+          id: number
+          uploaded_at: string | null
+          uploaded_by: string | null
+        }
+        Insert: {
+          description?: string | null
+          document_id?: string | null
+          file_name: string
+          file_url: string
+          id?: number
+          uploaded_at?: string | null
+          uploaded_by?: string | null
+        }
+        Update: {
+          description?: string | null
+          document_id?: string | null
+          file_name?: string
+          file_url?: string
+          id?: number
+          uploaded_at?: string | null
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_records_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_records_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents_view"
+            referencedColumns: ["doc_id"]
+          },
+        ]
+      }
+      document_versions: {
+        Row: {
+          description: string | null
+          document_id: string | null
+          file_url: string
+          id: string
+          revision: number
+          status: string | null
+          uploaded_at: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          description?: string | null
+          document_id?: string | null
+          file_url: string
+          id?: string
+          revision?: number
+          status?: string | null
+          uploaded_at?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          description?: string | null
+          document_id?: string | null
+          file_url?: string
+          id?: string
+          revision?: number
+          status?: string | null
+          uploaded_at?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_versions_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_versions_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents_view"
+            referencedColumns: ["doc_id"]
+          },
+        ]
       }
       documents: {
         Row: {
-          category: Database["public"]["Enums"]["document_category"]
-          created_at: string
-          description: string | null
-          file_name: string | null
-          file_url: string | null
+          category: string
+          code: string
+          created_by: string | null
+          file_name: string
           id: string
-          is_active: boolean
+          process: string | null
+          process_id: number | null
           title: string
-          updated_at: string
-          uploaded_by: string | null
-          version: string
         }
         Insert: {
-          category?: Database["public"]["Enums"]["document_category"]
-          created_at?: string
-          description?: string | null
-          file_name?: string | null
-          file_url?: string | null
+          category: string
+          code: string
+          created_by?: string | null
+          file_name: string
           id?: string
-          is_active?: boolean
+          process?: string | null
+          process_id?: number | null
           title: string
-          updated_at?: string
-          uploaded_by?: string | null
-          version?: string
         }
         Update: {
-          category?: Database["public"]["Enums"]["document_category"]
-          created_at?: string
-          description?: string | null
-          file_name?: string | null
-          file_url?: string | null
+          category?: string
+          code?: string
+          created_by?: string | null
+          file_name?: string
           id?: string
-          is_active?: boolean
+          process?: string | null
+          process_id?: number | null
           title?: string
-          updated_at?: string
-          uploaded_by?: string | null
-          version?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "fk_documents_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "process_compliance"
+            referencedColumns: ["process_id"]
+          },
+          {
+            foreignKeyName: "fk_documents_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_documents_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes_view"
+            referencedColumns: ["id"]
+          },
+        ]
       }
-      indicator_records: {
+      finding_actions: {
         Row: {
+          action_type: string | null
+          completion_date: string | null
+          created_at: string | null
+          description: string
+          finding_id: number | null
+          id: number
+          responsibles: string | null
+          status: string | null
+          target_date: string | null
+        }
+        Insert: {
+          action_type?: string | null
+          completion_date?: string | null
+          created_at?: string | null
+          description: string
+          finding_id?: number | null
+          id?: number
+          responsibles?: string | null
+          status?: string | null
+          target_date?: string | null
+        }
+        Update: {
+          action_type?: string | null
+          completion_date?: string | null
+          created_at?: string | null
+          description?: string
+          finding_id?: number | null
+          id?: number
+          responsibles?: string | null
+          status?: string | null
+          target_date?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finding_actions_finding_id_fkey"
+            columns: ["finding_id"]
+            isOneToOne: false
+            referencedRelation: "findings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      finding_evaluations: {
+        Row: {
+          comments: string | null
           created_at: string
-          id: string
-          indicator_id: string
-          notes: string | null
+          created_by: string | null
+          evaluation_date: string
+          finding_id: number
+          id: number
+          is_effective: boolean
+        }
+        Insert: {
+          comments?: string | null
+          created_at?: string
+          created_by?: string | null
+          evaluation_date: string
+          finding_id: number
+          id?: number
+          is_effective: boolean
+        }
+        Update: {
+          comments?: string | null
+          created_at?: string
+          created_by?: string | null
+          evaluation_date?: string
+          finding_id?: number
+          id?: number
+          is_effective?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finding_evaluations_finding_id_fkey"
+            columns: ["finding_id"]
+            isOneToOne: false
+            referencedRelation: "findings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      findings: {
+        Row: {
+          audit_id: number | null
+          circumstance: string | null
+          created_at: string | null
+          description: string
+          detected_by: string | null
+          detection_date: string | null
+          efficacy_eval_date: string | null
+          id: number
+          is_efficacious: boolean | null
+          process_id: number | null
+          root_cause_analysis: string | null
+          status: string | null
+          type: string
+        }
+        Insert: {
+          audit_id?: number | null
+          circumstance?: string | null
+          created_at?: string | null
+          description: string
+          detected_by?: string | null
+          detection_date?: string | null
+          efficacy_eval_date?: string | null
+          id?: number
+          is_efficacious?: boolean | null
+          process_id?: number | null
+          root_cause_analysis?: string | null
+          status?: string | null
+          type: string
+        }
+        Update: {
+          audit_id?: number | null
+          circumstance?: string | null
+          created_at?: string | null
+          description?: string
+          detected_by?: string | null
+          detection_date?: string | null
+          efficacy_eval_date?: string | null
+          id?: number
+          is_efficacious?: boolean | null
+          process_id?: number | null
+          root_cause_analysis?: string | null
+          status?: string | null
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_findings_audit_id_fkey"
+            columns: ["audit_id"]
+            isOneToOne: false
+            referencedRelation: "audits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "findings_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "process_compliance"
+            referencedColumns: ["process_id"]
+          },
+          {
+            foreignKeyName: "findings_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "findings_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_findings_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "process_compliance"
+            referencedColumns: ["process_id"]
+          },
+          {
+            foreignKeyName: "fk_findings_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_findings_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes_view"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      indicator_history: {
+        Row: {
+          created_at: string | null
+          id: number
+          indicator_id: number | null
+          observations: string | null
+          period: string | null
+          period_date: string | null
+          result: number | null
+          value_1: number | null
+          value_2: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: number
+          indicator_id?: number | null
+          observations?: string | null
+          period?: string | null
+          period_date?: string | null
+          result?: number | null
+          value_1?: number | null
+          value_2?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: number
+          indicator_id?: number | null
+          observations?: string | null
+          period?: string | null
+          period_date?: string | null
+          result?: number | null
+          value_1?: number | null
+          value_2?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "indicator_history_indicator_id_fkey"
+            columns: ["indicator_id"]
+            isOneToOne: false
+            referencedRelation: "indicators"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      indicator_measurements: {
+        Row: {
+          comments: string | null
+          created_at: string | null
+          created_by: string | null
+          id: number
+          indicator_id: number | null
           period: string
-          recorded_by: string | null
           value: number
         }
         Insert: {
-          created_at?: string
-          id?: string
-          indicator_id: string
-          notes?: string | null
+          comments?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: number
+          indicator_id?: number | null
           period: string
-          recorded_by?: string | null
           value: number
         }
         Update: {
-          created_at?: string
-          id?: string
-          indicator_id?: string
-          notes?: string | null
+          comments?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: number
+          indicator_id?: number | null
           period?: string
-          recorded_by?: string | null
           value?: number
         }
         Relationships: [
           {
-            foreignKeyName: "indicator_records_indicator_id_fkey"
+            foreignKeyName: "indicator_measurements_indicator_id_fkey"
             columns: ["indicator_id"]
             isOneToOne: false
             referencedRelation: "indicators"
@@ -135,145 +533,314 @@ export type Database = {
       }
       indicators: {
         Row: {
+          calculation_info: string | null
           created_at: string
+          created_by: number | null
           current_value: number | null
-          description: string | null
-          frequency: string
-          id: string
+          formula: string | null
+          frequency: string | null
+          id: number
+          input_1: string | null
+          input_2: string | null
+          last_update: string | null
           name: string
-          responsible_id: string | null
+          objective: string | null
+          process: string | null
+          process_id: number | null
+          responsible: string | null
           target_value: number
-          unit: string
-          updated_at: string
+          unit: string | null
         }
         Insert: {
+          calculation_info?: string | null
           created_at?: string
+          created_by?: number | null
           current_value?: number | null
-          description?: string | null
-          frequency?: string
-          id?: string
+          formula?: string | null
+          frequency?: string | null
+          id?: number
+          input_1?: string | null
+          input_2?: string | null
+          last_update?: string | null
           name: string
-          responsible_id?: string | null
+          objective?: string | null
+          process?: string | null
+          process_id?: number | null
+          responsible?: string | null
           target_value: number
-          unit?: string
-          updated_at?: string
+          unit?: string | null
         }
         Update: {
+          calculation_info?: string | null
           created_at?: string
+          created_by?: number | null
           current_value?: number | null
-          description?: string | null
-          frequency?: string
-          id?: string
+          formula?: string | null
+          frequency?: string | null
+          id?: number
+          input_1?: string | null
+          input_2?: string | null
+          last_update?: string | null
           name?: string
-          responsible_id?: string | null
+          objective?: string | null
+          process?: string | null
+          process_id?: number | null
+          responsible?: string | null
           target_value?: number
-          unit?: string
-          updated_at?: string
+          unit?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "fk_indicators_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "process_compliance"
+            referencedColumns: ["process_id"]
+          },
+          {
+            foreignKeyName: "fk_indicators_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_indicators_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "indicators_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "indicators_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "process_compliance"
+            referencedColumns: ["process_id"]
+          },
+          {
+            foreignKeyName: "indicators_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "indicators_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes_view"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       processes: {
         Row: {
+          category: string | null
+          code: string | null
           compliance_percentage: number | null
           created_at: string
-          description: string | null
-          id: string
+          id: number
+          manager_ids: string[] | null
           name: string
-          owner_id: string | null
-          process_type: string
-          updated_at: string
+          owner_id: number | null
+          responsibles: string | null
+          subprocesses: string[] | null
+          type: string | null
         }
         Insert: {
+          category?: string | null
+          code?: string | null
           compliance_percentage?: number | null
           created_at?: string
-          description?: string | null
-          id?: string
+          id?: number
+          manager_ids?: string[] | null
           name: string
-          owner_id?: string | null
-          process_type?: string
-          updated_at?: string
+          owner_id?: number | null
+          responsibles?: string | null
+          subprocesses?: string[] | null
+          type?: string | null
         }
         Update: {
+          category?: string | null
+          code?: string | null
           compliance_percentage?: number | null
           created_at?: string
-          description?: string | null
-          id?: string
+          id?: number
+          manager_ids?: string[] | null
           name?: string
-          owner_id?: string | null
-          process_type?: string
-          updated_at?: string
+          owner_id?: number | null
+          responsibles?: string | null
+          subprocesses?: string[] | null
+          type?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "fk_processes_owner"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "processes_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
-      profiles: {
+      users: {
         Row: {
-          avatar_url: string | null
+          auth_id: string
           created_at: string
           email: string
           full_name: string | null
-          id: string
+          id: number
+          last_access: string | null
+          role: string | null
           updated_at: string
         }
         Insert: {
-          avatar_url?: string | null
+          auth_id: string
           created_at?: string
           email: string
           full_name?: string | null
-          id: string
+          id?: number
+          last_access?: string | null
+          role?: string | null
           updated_at?: string
         }
         Update: {
-          avatar_url?: string | null
+          auth_id?: string
           created_at?: string
           email?: string
           full_name?: string | null
-          id?: string
+          id?: number
+          last_access?: string | null
+          role?: string | null
           updated_at?: string
-        }
-        Relationships: []
-      }
-      user_roles: {
-        Row: {
-          id: string
-          role: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Insert: {
-          id?: string
-          role?: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Update: {
-          id?: string
-          role?: Database["public"]["Enums"]["app_role"]
-          user_id?: string
         }
         Relationships: []
       }
     }
     Views: {
-      [_ in never]: never
+      documents_view: {
+        Row: {
+          category: string | null
+          code: string | null
+          description: string | null
+          doc_id: string | null
+          file_name: string | null
+          file_url: string | null
+          manager_ids: string[] | null
+          process: string | null
+          process_id: number | null
+          revision: number | null
+          status: string | null
+          title: string | null
+          uploaded_at: string | null
+          user_name: string | null
+          version_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_documents_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "process_compliance"
+            referencedColumns: ["process_id"]
+          },
+          {
+            foreignKeyName: "fk_documents_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_documents_process"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes_view"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      global_activity_view: {
+        Row: {
+          activity_type: string | null
+          created_at: string | null
+          description: string | null
+          reference_id: string | null
+          title: string | null
+          unique_id: string | null
+        }
+        Relationships: []
+      }
+      process_compliance: {
+        Row: {
+          calculated_compliance: number | null
+          process_id: number | null
+        }
+        Relationships: []
+      }
+      processes_view: {
+        Row: {
+          code: string | null
+          compliance: number | null
+          created_at: string | null
+          doc_count: number | null
+          id: number | null
+          indicator_count: number | null
+          name: string | null
+          responsibles: string | null
+          subprocesses: string[] | null
+          type: string | null
+        }
+        Insert: {
+          code?: string | null
+          compliance?: never
+          created_at?: string | null
+          doc_count?: never
+          id?: number | null
+          indicator_count?: never
+          name?: string | null
+          responsibles?: string | null
+          subprocesses?: string[] | null
+          type?: string | null
+        }
+        Update: {
+          code?: string | null
+          compliance?: never
+          created_at?: string | null
+          doc_count?: never
+          id?: number | null
+          indicator_count?: never
+          name?: string | null
+          responsibles?: string | null
+          subprocesses?: string[] | null
+          type?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
-      has_elevated_role: { Args: { _user_id: string }; Returns: boolean }
-      has_role: {
-        Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
-        }
-        Returns: boolean
+      increment_audit_finding: {
+        Args: { audit_id: number; field_name: string }
+        Returns: undefined
       }
     }
     Enums: {
-      app_role: "admin" | "auditor" | "editor" | "colaborador"
-      document_category:
-        | "manual"
-        | "procedimiento"
-        | "instructivo"
-        | "registro"
-        | "formato"
-        | "politica"
-        | "otro"
+      [_ in never]: never
     }
     CompositeTypes: {
       [_ in never]: never
@@ -400,17 +967,6 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {
-      app_role: ["admin", "auditor", "editor", "colaborador"],
-      document_category: [
-        "manual",
-        "procedimiento",
-        "instructivo",
-        "registro",
-        "formato",
-        "politica",
-        "otro",
-      ],
-    },
+    Enums: {},
   },
 } as const

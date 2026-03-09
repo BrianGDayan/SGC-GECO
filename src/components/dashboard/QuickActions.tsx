@@ -4,24 +4,28 @@ interface QuickActionsProps {
   onUploadDoc: () => void;
   onRecordIndicator: () => void;
   onNewFinding: () => void;
-  onCreateProcess: () => void;
+  onCreateProcess?: () => void; // AHORA ES OPCIONAL
 }
 
 const colorStyles = {
   primary: "bg-primary/10 text-primary hover:bg-primary/20",
   secondary: "bg-secondary/10 text-secondary hover:bg-secondary/20",
-  // CORRECCIÓN: Se agregó el estado hover que faltaba
   destructive: "bg-destructive/10 text-destructive hover:bg-destructive/20",
   accent: "bg-accent/10 text-accent hover:bg-accent/20",
 };
 
 const QuickActions = ({ onUploadDoc, onRecordIndicator, onNewFinding, onCreateProcess }: QuickActionsProps) => {
+  // Construimos la lista base (las 3 acciones que los Editores sí ven)
   const actions = [
     { icon: Upload, label: "Subir Documento", color: "primary", onClick: onUploadDoc },
     { icon: BarChart3, label: "Registrar Indicador", color: "secondary", onClick: onRecordIndicator },
     { icon: Search, label: "Nuevo Hallazgo", color: "destructive", onClick: onNewFinding },
-    { icon: FileText, label: "Crear Procedimiento", color: "accent", onClick: onCreateProcess },
   ];
+
+  // Si nos pasaron la función (es decir, el usuario es Admin), agregamos el cuarto botón
+  if (onCreateProcess) {
+    actions.push({ icon: FileText, label: "Crear Proceso", color: "accent", onClick: onCreateProcess });
+  }
 
   return (
     <div className="rounded-xl border border-border bg-card p-6 shadow-sm animate-slide-up">

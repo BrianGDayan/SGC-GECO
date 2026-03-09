@@ -12,14 +12,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 import ProcessForm from "@/components/forms/ProcessForm";
 import IndicatorMeasurementForm from "@/components/forms/IndicatorMeasurementForm";
 import FindingForm from "@/components/forms/FindingForm";
-// NUEVAS IMPORTACIONES
+import { Edit } from "lucide-react"; // Asegúrate de importar Edit
+import IndicatorForm from "@/components/forms/IndicatorForm";
 import DocumentVersionForm from "@/components/forms/DocumentVersionForm";
 import DocumentRecordsModal from "@/components/modals/DocumentRecordsModal";
 
@@ -35,8 +35,7 @@ const statusStyles = {
   vigente: "bg-success/10 text-success border-success/20",
   "en revision": "bg-warning/10 text-warning border-warning/20",
   "en aprobacion": "bg-primary/10 text-primary border-primary/20",
-  "no aprobado": "bg-destructive/10 text-destructive border-destructive/20",
-  obsoleto: "bg-muted text-muted-foreground border-border", // Agregado para consistencia
+  obsoleto: "bg-muted text-muted-foreground border-border", 
 };
 
 const getComplianceColor = (compliance: number) => {
@@ -47,23 +46,32 @@ const getComplianceColor = (compliance: number) => {
 
 const Procesos = () => {
   const queryClient = useQueryClient();
-  const { isEditor } = useAuth();
+  // AQUÍ ESTÁ LA MAGIA: Traemos isAdmin y canManageProcess
+  const { isAdmin, canManageProcess } = useAuth();
   const navigate = useNavigate();
   
   const [selectedProcess, setSelectedProcess] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [docStatusFilter, setDocStatusFilter] = useState("all");
   
-  // Estados de Modales Generales
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isFindingModalOpen, setIsFindingModalOpen] = useState(false);
 
-  // NUEVOS ESTADOS PARA DOCUMENTOS
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
   const [isRecordsModalOpen, setIsRecordsModalOpen] = useState(false);
   const [versioningDoc, setVersioningDoc] = useState<any>(null);
   const [recordDoc, setRecordDoc] = useState<any>(null);
+
+  // 1. Agrega este estado junto a los demás
+const [editingProcess, setEditingProcess] = useState<any>(null);
+
+// 2. Agrega esta función antes del return
+const handleEditProcess = (e: React.MouseEvent, process: any) => {
+  e.stopPropagation(); // Evita entrar al detalle del proceso
+  setEditingProcess(process);
+  setIsModalOpen(true);
+};
   
   useEffect(() => {
     if (selectedProcess) {
@@ -73,21 +81,55 @@ const Procesos = () => {
     }
   }, [selectedProcess]);
 
-  // === 1. CARGA DE PROCESOS ===
   const { data: processes = [], isLoading, isFetching } = useQuery({
     queryKey: ["processes"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("processes_view" as any)
-        .select("*")
-        .order("code", { ascending: true });
+      // Nota: Si processes_view no tiene la columna manager_ids, 
+      // asegurate de recrear la vista en BD o cambiar esto a la tabla original 'processes'
+      const [procRes, indRes] = await Promise.all([
+        supabase.from("processes_view" as any).select("*").order("code", { ascending: true }),
+        supabase.from("indicators" as any).select("*")
+      ]);
         
-      if (error) throw error;
-      return data || [];
+      if (procRes.error) throw procRes.error;
+      
+      const allInds = indRes.data || [];
+      
+      return (procRes.data || []).map((p: any) => {
+        const pInds = allInds.filter((i: any) => i.process === p.name);
+        
+        let finalCompliance = 100; 
+        
+        if (pInds.length > 0) {
+          let sumPct = 0;
+          pInds.forEach((ind: any) => {
+            const val = ind.current_value || 0;
+            const target = ind.target_value || 1;
+            const unit = (ind.unit || "").toLowerCase();
+            
+            const isInverse = unit.includes("hr") || unit.includes("día") || unit.includes("dia");
+            
+            let pct = 0;
+            if (isInverse) {
+              pct = val <= target ? 100 : (target / val) * 100;
+            } else {
+              pct = val >= target ? 100 : (val / target) * 100;
+            }
+            
+            sumPct += pct; 
+          });
+          finalCompliance = Math.round(sumPct / pInds.length);
+        }
+        
+        return {
+          ...p,
+          compliance: finalCompliance, 
+          indicator_count: pInds.length 
+        };
+      });
     }
   });
 
-  // === 2. DETALLE DE PROCESO ===
   const { data: detail = { docs: [], inds: [], findings: [] }, isLoading: isLoadingDetail } = useQuery({
     queryKey: ["process-content", selectedProcess?.id],
     queryFn: async () => {
@@ -97,8 +139,8 @@ const Procesos = () => {
         supabase.from("documents_view" as any).select("*").eq("process", selectedProcess.name),
         supabase.from("indicators" as any).select("*").eq("process", selectedProcess.name),
         isFindingProcess 
-          ? supabase.from("findings" as any).select("*, processes(name)").order('created_at', { ascending: false })
-          : supabase.from("findings" as any).select("*, processes(name)").eq("process_id", selectedProcess.id)
+          ? supabase.from("findings" as any).select("*").order('created_at', { ascending: false })
+          : supabase.from("findings" as any).select("*").eq("process_id", selectedProcess.id)
       ]);
 
       const findingsData = findings.data as any[];
@@ -129,7 +171,6 @@ const Procesos = () => {
     return matchesSearch && matchesStatus;
   });
 
-  // Funciones para abrir modales de documentos
   const openVersionModal = (doc: any) => { setVersioningDoc(doc); setIsVersionModalOpen(true); };
   const openRecordsModal = (doc: any) => { setRecordDoc(doc); setIsRecordsModalOpen(true); };
   
@@ -145,6 +186,8 @@ const Procesos = () => {
   // === VISTA DE DETALLE ===
   if (selectedProcess) {
     const isFindingProcess = selectedProcess.name === PROCESS_HALLAZGOS_NAME;
+    // Verificamos si el usuario actual tiene permiso en ESTE proceso específico
+    const hasProcessPermissions = canManageProcess(selectedProcess.manager_ids);
 
     return (
       <MainLayout title={selectedProcess.name} subtitle={`Dashboard de ${selectedProcess.code}`}>
@@ -160,7 +203,6 @@ const Procesos = () => {
             </div>
           ) : (
             <div className="animate-fade-in">
-              {/* === TARJETAS SUPERIORES === */}
               <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-4">
                 <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
                   <div className="flex items-center gap-3">
@@ -193,7 +235,6 @@ const Procesos = () => {
 
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 <div className="lg:col-span-2 space-y-6">
-                  {/* Tabla Documentos */}
                   <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
                     <div className="border-b p-4 bg-muted/30">
                       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -234,8 +275,8 @@ const Procesos = () => {
                                 <td className="p-4"><Badge variant="outline" className={cn("text-[10px] uppercase font-bold", statusStyles[doc.status as keyof typeof statusStyles] || "bg-gray-100")}>{doc.status}</Badge></td>
                                 <td className="p-4 text-right">
                                   <div className="flex justify-end gap-1">
-                                    {/* 1. Botón Registros (Solo si es registro y vigente) */}
-                                    {doc.category === 'registro' && doc.status === 'vigente' && (
+                                    {/* Botón de Registros - Ahora también validado */}
+                                    {doc.category === 'registro' && doc.status === 'vigente' && hasProcessPermissions && (
                                         <Button 
                                             variant="ghost" 
                                             size="icon" 
@@ -246,19 +287,14 @@ const Procesos = () => {
                                             <ClipboardList className="h-4 w-4" />
                                         </Button>
                                     )}
-
-                                    {/* 2. Visualizar */}
                                     <Button variant="ghost" size="icon" className="h-8 w-8" asChild title="Ver documento">
                                       <a href={doc.file_url} target="_blank" rel="noreferrer"><Eye className="h-4 w-4" /></a>
                                     </Button>
-
-                                    {/* 3. Descargar */}
                                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDownload(doc.file_url, doc.title)} title="Descargar documento">
                                       <Download className="h-4 w-4" />
                                     </Button>
-
-                                    {/* 4. Nueva Versión (Si no es obsoleto) */}
-                                    {doc.status !== 'obsoleto' && isEditor && (
+                                    {/* Botón de Nueva Versión - Ahora protegido por permisos */}
+                                    {doc.status !== 'obsoleto' && hasProcessPermissions && (
                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => openVersionModal(doc)} title="Nueva Versión de documento">
                                             <FileUp className="h-4 w-4" />
                                         </Button>
@@ -283,7 +319,8 @@ const Procesos = () => {
                             {isFindingProcess ? "Registro Global de Hallazgos" : "Hallazgos en este Proceso"}
                           </h3>
                         </div>
-                        {isFindingProcess && isEditor && (
+                        {/* Nuevo Hallazgo - Protegido por Admin o permisos de proceso */}
+                        {isFindingProcess && (isAdmin || hasProcessPermissions) && (
                           <Button 
                             size="sm" 
                             variant="destructive" 
@@ -298,10 +335,9 @@ const Procesos = () => {
                         <table className="w-full text-sm">
                           <thead className="bg-muted/50 text-muted-foreground border-b text-left">
                             <tr>
-                              <th className="p-4">Origen</th>
-                              <th className="p-4">Tipo</th>
-                              {isFindingProcess && <th className="p-4">Proceso</th>}
                               <th className="p-4">Descripción</th>
+                              <th className="p-4">Tipo</th>
+                              <th className="p-4">Proceso</th>
                               <th className="p-4">Estado</th>
                               <th className="p-4 text-right">Ver</th>
                             </tr>
@@ -309,14 +345,15 @@ const Procesos = () => {
                           <tbody className="divide-y">
                             {detail.findings.map((f: any) => (
                               <tr key={f.id} className="hover:bg-muted/10">
-                                <td className="p-4"><p className="font-medium text-xs capitalize">{f.circumstance?.replace(/_/g, " ")}</p></td>
+                                <td className="p-4 max-w-sm truncate text-sm">{f.description}</td>
                                 <td className="p-4">
-                                  <Badge variant="outline" className={cn("text-[9px] uppercase", findingTypeStyles[f.type as keyof typeof findingTypeStyles])}>
+                                  <Badge variant="outline" className={cn("text-[10px] uppercase", findingTypeStyles[f.type as keyof typeof findingTypeStyles])}>
                                     {f.type?.replace(/_/g, " ") || "Hallazgo"}
                                   </Badge>
                                 </td>
-                                {isFindingProcess && <td className="p-4 text-xs font-medium">{f.processes?.name || "-"}</td>}
-                                <td className="p-4 max-w-xs truncate text-xs">{f.description}</td>
+                                <td className="p-4 text-sm font-medium">
+                                  {isFindingProcess ? (processes.find((p: any) => p.id === f.process_id)?.name || "General") : selectedProcess.name}
+                                </td>
                                 <td className="p-4">
                                   <Badge className={f.status === 'abierto' ? 'bg-destructive' : 'bg-success'}>{f.status}</Badge>
                                 </td>
@@ -347,7 +384,8 @@ const Procesos = () => {
                         <h3 className="text-lg font-semibold text-foreground">Indicadores Clave</h3>
                         <p className="text-sm text-muted-foreground">Progreso hacia objetivos de calidad</p>
                       </div>
-                      {isEditor && (
+                      {/* Botón Cargar Datos Indicador - Protegido */}
+                      {hasProcessPermissions && (
                         <Button size="icon" variant="ghost" onClick={() => setIsUploadOpen(true)} className="h-8 w-8 text-primary">
                           <Plus className="h-4 w-4" />
                         </Button>
@@ -366,13 +404,17 @@ const Procesos = () => {
                           
                           const val = ind.current_value || 0;
                           const target = ind.target_value || 1;
-                          const unit = ind.unit || "";
+                          const unit = (ind.unit || "").toLowerCase();
 
-                          const progress = unit.toLowerCase().includes("hr") 
-                            ? Math.min(100, ((target - val) / target) * 100 + 50)
-                            : (val / target) * 100;
-
-                          const isOnTarget = unit.toLowerCase().includes("hr") ? val <= target : val >= target;
+                          const isInverse = unit.includes("hr") || unit.includes("día") || unit.includes("dia");
+                          const isOnTarget = isInverse ? val <= target : val >= target;
+                          
+                          let progress = 0;
+                          if (isInverse) {
+                            progress = val <= target ? 100 : (target / val) * 100;
+                          } else {
+                            progress = val >= target ? 100 : (val / target) * 100;
+                          }
 
                           return (
                             <div key={ind.id} className="p-4 hover:bg-muted/30 transition-colors">
@@ -385,7 +427,7 @@ const Procesos = () => {
                                   {val}{unit} / {target}{unit}
                                 </span>
                               </div>
-                              <Progress value={Math.min(progress, 100)} className="h-2" />
+                              <Progress value={progress} className="h-2" />
                             </div>
                           );
                         })
@@ -397,7 +439,6 @@ const Procesos = () => {
                   <div className="rounded-xl border border-border bg-card shadow-sm animate-slide-up" style={{ animationDelay: "200ms" }}>
                     <div className="border-b border-border p-6">
                       <h3 className="text-lg font-semibold text-foreground">Subprocesos Vinculados</h3>
-                      <p className="text-sm text-muted-foreground">Estructura operativa</p>
                     </div>
                     <div className="p-6">
                       <div className="flex flex-wrap gap-1">
@@ -425,6 +466,7 @@ const Procesos = () => {
                     onSuccess={() => {
                       setIsUploadOpen(false);
                       queryClient.invalidateQueries({ queryKey: ["process-content"] });
+                      queryClient.invalidateQueries({ queryKey: ["processes"] });
                     }} 
                   />
                 </DialogContent>
@@ -444,9 +486,7 @@ const Procesos = () => {
                 </DialogContent>
               </Dialog>
 
-              {/* NUEVOS MODALES DE DOCUMENTACIÓN */}
               <Dialog open={isVersionModalOpen} onOpenChange={setIsVersionModalOpen}>
-                {/* AGREGADO: max-h-[90vh] overflow-y-auto */}
                 <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Generar Nueva Versión</DialogTitle>
@@ -484,7 +524,8 @@ const Procesos = () => {
       ) : (
         <div key="map-view" className="animate-fade-in">
           <div className="mb-6 flex justify-end">
-            {isEditor && <Button onClick={() => setIsModalOpen(true)} className="gap-2 bg-primary hover:bg-primary-dark shadow-sm"><Plus className="h-4 w-4" /> Nuevo Proceso</Button>}
+            {/* AQUÍ ESTÁ EL CAMBIO: El botón de Crear Proceso es solo para Administradores */}
+            {isAdmin && <Button onClick={() => setIsModalOpen(true)} className="gap-2 bg-primary hover:bg-primary-dark shadow-sm"><Plus className="h-4 w-4" /> Nuevo Proceso</Button>}
           </div>
           
           <div className="mb-8 rounded-xl border border-border bg-card p-6 shadow-sm">
@@ -492,7 +533,9 @@ const Procesos = () => {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               {['estratégico', 'operativo', 'apoyo'].map((type) => (
                 <div key={type} className={cn("rounded-lg p-4", type === 'estratégico' ? "bg-primary/5" : type === 'operativo' ? "bg-secondary/10" : "bg-accent/10")}>
-                  <h4 className="mb-3 text-sm font-medium capitalize">Procesos de {type}</h4>
+                  <h4 className="mb-3 text-sm font-medium capitalize">
+                    {type === 'apoyo' ? 'Procesos de Apoyo' : `Procesos ${type}s`}
+                  </h4>
                   <div className="space-y-2">
                     {processes.filter((p: any) => p.type === type).map((p: any) => (
                       <div key={p.id} onClick={() => setSelectedProcess(p)} className="rounded bg-card p-2 text-sm shadow-sm cursor-pointer hover:border-primary border transition-colors">{p.name}</div>
@@ -511,6 +554,16 @@ const Procesos = () => {
                 className="group rounded-xl border border-border bg-card p-6 shadow-sm transition-all duration-300 hover:shadow-md hover:border-primary/30 cursor-pointer animate-slide-up"
                 style={{ animationDelay: `${index * 50}ms` }}
               >
+                {(isAdmin || canManageProcess(process.manager_ids)) && (
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="absolute right-2 top-2 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity z-10" 
+                  onClick={(e) => handleEditProcess(e, process)}
+                >
+                  <Edit className="h-4 w-4" />
+                </Button>
+              )}
                 <div className="mb-4 flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold">
@@ -571,13 +624,24 @@ const Procesos = () => {
             ))}
           </div>
 
-          <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-            <DialogContent className="sm:max-w-xl">
+          <Dialog open={isModalOpen} onOpenChange={(open) => { setIsModalOpen(open); if(!open) setEditingProcess(null); }}>
+            {/* Ajuste de alineación y scroll */}
+            <DialogContent className="sm:max-w-xl max-h-[95vh] overflow-y-auto !align-top !top-[2.5vh] !translate-y-0">
               <DialogHeader>
-                <DialogTitle>Nuevo Proceso</DialogTitle>
-                <DialogDescription>Complete la información técnica del proceso.</DialogDescription>
+                <DialogTitle>{editingProcess ? "Editar Proceso" : "Nuevo Proceso"}</DialogTitle>
+                <DialogDescription>
+                  {editingProcess ? `Editando ${editingProcess.name}` : "Cree un nuevo proceso."}
+                </DialogDescription>
               </DialogHeader>
-              <ProcessForm onSuccess={() => setIsModalOpen(false)} />
+              
+              <ProcessForm 
+                editingProcess={editingProcess} 
+                onSuccess={() => { 
+                  setIsModalOpen(false); 
+                  setEditingProcess(null); 
+                  queryClient.invalidateQueries({ queryKey: ["processes"] }); 
+                }} 
+              />
             </DialogContent>
           </Dialog>
         </div>

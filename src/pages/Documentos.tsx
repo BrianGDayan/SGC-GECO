@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+// IMPORTAMOS EL HOOK DE ROLES
+import { useAuth } from "@/hooks/useAuth"; 
 import { 
   FileText, Upload, Search, Download, Eye, Edit, Trash2, FolderOpen, Loader2, AlertTriangle, Filter, FileUp, ClipboardList
 } from "lucide-react";
@@ -14,7 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { toast } from "sonner";
 import DocumentForm from "@/components/forms/DocumentForm";
 import DocumentVersionForm from "@/components/forms/DocumentVersionForm";
-import DocumentRecordsModal from "@/components/modals/DocumentRecordsModal"; // <--- IMPORTANTE
+import DocumentRecordsModal from "@/components/modals/DocumentRecordsModal";
 
 const categories = [
   { id: "manual", name: "Manual", prefix: "MA" },
@@ -30,12 +32,13 @@ const statusStyles = {
   vigente: "bg-success/10 text-success border-success/20",
   "en revision": "bg-warning/10 text-warning border-warning/20",
   "en aprobacion": "bg-primary/10 text-primary border-primary/20",
-  "no aprobado": "bg-destructive/10 text-destructive border-destructive/20",
   obsoleto: "bg-muted text-muted-foreground border-border",
 };
 
 const Documentos = () => {
   const queryClient = useQueryClient();
+  // TRAEMOS LOS ROLES Y PERMISOS
+  const { isAdmin, isEditor, canManageProcess } = useAuth();
 
   // Filtros
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -47,12 +50,12 @@ const Documentos = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-  const [isRecordsModalOpen, setIsRecordsModalOpen] = useState(false); // <--- NUEVO ESTADO
+  const [isRecordsModalOpen, setIsRecordsModalOpen] = useState(false);
   
   const [editingDoc, setEditingDoc] = useState<any>(null);
   const [versioningDoc, setVersioningDoc] = useState<any>(null);
   const [deletingDoc, setDeletingDoc] = useState<any>(null);
-  const [recordDoc, setRecordDoc] = useState<any>(null); // <--- Documento seleccionado para ver registros
+  const [recordDoc, setRecordDoc] = useState<any>(null);
   
   const { data: documents = [], isLoading } = useQuery({
     queryKey: ["documents"],
@@ -100,12 +103,7 @@ const Documentos = () => {
 
   const openModal = (doc: any = null) => { setEditingDoc(doc); setIsModalOpen(true); };
   const openVersionModal = (doc: any) => { setVersioningDoc(doc); setIsVersionModalOpen(true); };
-  
-  // <--- NUEVA FUNCIÓN PARA ABRIR MODAL DE REGISTROS
-  const openRecordsModal = (doc: any) => {
-    setRecordDoc(doc);
-    setIsRecordsModalOpen(true);
-  };
+  const openRecordsModal = (doc: any) => { setRecordDoc(doc); setIsRecordsModalOpen(true); };
 
   const closeModal = () => {
     setIsModalOpen(false);
@@ -154,7 +152,13 @@ const Documentos = () => {
                 </SelectContent>
               </Select>
             </div>
-            <Button onClick={() => openModal()} className="gap-2 bg-primary hover:bg-primary-dark"><Upload className="h-4 w-4" /> Subir Documento</Button>
+            
+            {/* BOTÓN GENERAL PROTEGIDO: Solo Admins o Jefes de Área pueden subir nuevos documentos */}
+            {(isAdmin || isEditor) && (
+              <Button onClick={() => openModal()} className="gap-2 bg-primary hover:bg-primary-dark">
+                <Upload className="h-4 w-4" /> Subir Documento
+              </Button>
+            )}
           </div>
 
           <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
@@ -172,51 +176,68 @@ const Documentos = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filteredDocs.map((doc: any) => (
-                  <tr key={doc.version_id} className={`transition-colors hover:bg-muted/30 ${doc.status === 'obsoleto' ? 'opacity-60 bg-muted/10' : ''}`}>
-                    <td className="px-4 py-3 font-mono text-sm font-medium text-primary">{doc.code}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded bg-primary/10"><FileText className="h-4 w-4 text-primary" /></div>
-                        <span className="font-medium text-sm text-foreground">{doc.title}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground capitalize">{categories.find(c => c.id === doc.category)?.name || doc.category}</td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground">{doc.process || "-"}</td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground font-bold">{doc.revision}</td>
-                    <td className="px-4 py-3 text-xs">
-                      <p className="text-foreground">{doc.updatedAt}</p>
-                      <p className="text-muted-foreground text-[12px]">{doc.updatedBy}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline" className={`${statusStyles[doc.status as keyof typeof statusStyles] || statusStyles['obsoleto']} text-[10px] uppercase`}>
-                        {doc.status}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
-                        {/* BOTÓN NUEVO: GESTIÓN DE REGISTROS (Solo para registros y vigentes) */}
-                        {doc.category === 'registro' && doc.status === 'vigente' && (
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:bg-secondary hover:text-white transition-colors" onClick={() => openRecordsModal(doc)} title="Ver Registros Completados">
-                            <ClipboardList className="h-4 w-4" />
-                          </Button>
-                        )}
+                {filteredDocs.map((doc: any) => {
+                  // MAGIA DE PERMISOS DE FILA:
+                  // Evaluamos si el usuario actual tiene permiso para editar ESTE documento en particular
+                  const hasProcessPermissions = canManageProcess(doc.manager_ids);
 
-                        <Button variant="ghost" size="icon" className="h-8 w-8" asChild><a href={doc.file_url} target="_blank" rel="noreferrer" title="Ver documento"><Eye className="h-4 w-4" /></a></Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDownload(doc.file_url, doc.file_name)} title="Descargar documento"><Download className="h-4 w-4" /></Button>
-                        
-                        {doc.status !== 'obsoleto' && (
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => openVersionModal(doc)} title="Nueva Versión del documento">
-                            <FileUp className="h-4 w-4" />
-                          </Button>
-                        )}
-                        
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openModal(doc)} title="Modificar documento"><Edit className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { setDeletingDoc(doc); setIsDeleteOpen(true); }} title="Eliminar documento"><Trash2 className="h-4 w-4" /></Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                  return (
+                    <tr key={doc.version_id} className={`transition-colors hover:bg-muted/30 ${doc.status === 'obsoleto' ? 'opacity-60 bg-muted/10' : ''}`}>
+                      <td className="px-4 py-3 font-mono text-sm font-medium text-primary">{doc.code}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded bg-primary/10"><FileText className="h-4 w-4 text-primary" /></div>
+                          <span className="font-medium text-sm text-foreground">{doc.title}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground capitalize">{categories.find(c => c.id === doc.category)?.name || doc.category}</td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground">{doc.process || "-"}</td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground font-bold">{doc.revision}</td>
+                      <td className="px-4 py-3 text-xs">
+                        <p className="text-foreground">{doc.updatedAt}</p>
+                        <p className="text-muted-foreground text-[12px]">{doc.updatedBy}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="outline" className={`${statusStyles[doc.status as keyof typeof statusStyles] || statusStyles['obsoleto']} text-[10px] uppercase`}>
+                          {doc.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-1">
+                          
+                          {/* BOTONES EXCLUSIVOS PARA ADMINISTRADORES O DUEÑOS DEL PROCESO */}
+                          {hasProcessPermissions && (
+                            <>
+                              {doc.category === 'registro' && doc.status === 'vigente' && (
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:bg-secondary hover:text-white transition-colors" onClick={() => openRecordsModal(doc)} title="Ver Registros Completados">
+                                  <ClipboardList className="h-4 w-4" />
+                                </Button>
+                              )}
+                              
+                              {doc.status !== 'obsoleto' && (
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => openVersionModal(doc)} title="Nueva Versión del documento">
+                                  <FileUp className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </>
+                          )}
+
+                          {/* BOTONES PÚBLICOS (Ver y Descargar) */}
+                          <Button variant="ghost" size="icon" className="h-8 w-8" asChild><a href={doc.file_url} target="_blank" rel="noreferrer" title="Ver documento"><Eye className="h-4 w-4" /></a></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDownload(doc.file_url, doc.file_name)} title="Descargar documento"><Download className="h-4 w-4" /></Button>
+                          
+                          {/* MÁS BOTONES EXCLUSIVOS */}
+                          {hasProcessPermissions && (
+                            <>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openModal(doc)} title="Modificar documento"><Edit className="h-4 w-4" /></Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { setDeletingDoc(doc); setIsDeleteOpen(true); }} title="Eliminar documento"><Trash2 className="h-4 w-4" /></Button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -234,7 +255,6 @@ const Documentos = () => {
       </Dialog>
 
       <Dialog open={isVersionModalOpen} onOpenChange={setIsVersionModalOpen}>
-        {/* CORRECCIÓN: Bajamos a 80vh para evitar cortes en pantallas pequeñas */}
         <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Generar Nueva Versión</DialogTitle>
@@ -242,7 +262,6 @@ const Documentos = () => {
               Cargar actualización para el documento maestro <strong>{versioningDoc?.code}</strong>.
             </DialogDescription>
           </DialogHeader>
-          {/* Wrapper con padding vertical para evitar que los inputs se peguen a los bordes al hacer scroll */}
           <div className="py-2">
             {versioningDoc && <DocumentVersionForm parentDoc={versioningDoc} onSuccess={closeModal} />}
           </div>

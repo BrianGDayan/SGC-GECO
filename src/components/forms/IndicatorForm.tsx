@@ -18,11 +18,9 @@ const IndicatorForm = ({ editingIndicator, onSuccess }: IndicatorFormProps) => {
   
   const [form, setForm] = useState({
     name: editingIndicator?.name || "",
-    // Si estamos editando, intentamos usar el process_id si existe, si no, buscamos por nombre o dejamos vacío
     process_id: editingIndicator?.process_id?.toString() || "", 
     objective: editingIndicator?.objective || "",
     target_value: editingIndicator?.target_value?.toString() || "",
-    current_value: editingIndicator?.current_value?.toString() || "0",
     unit: editingIndicator?.unit || "%",
     input_1: editingIndicator?.input_1 || "",
     input_2: editingIndicator?.input_2 || "",
@@ -32,10 +30,12 @@ const IndicatorForm = ({ editingIndicator, onSuccess }: IndicatorFormProps) => {
     formula: editingIndicator?.formula || ""
   });
 
+  // Tipado estricto agregado aquí para evitar errores de TS
   const { data: processes = [] } = useQuery({
     queryKey: ["processes"],
-    queryFn: async () => {
-      const { data } = await (supabase.from("processes" as any).select("id, name") as any);
+    queryFn: async (): Promise<any[]> => {
+      const { data, error } = await supabase.from("processes" as any).select("id, name");
+      if (error) throw error;
       return (data || []) as any[];
     }
   });
@@ -46,18 +46,22 @@ const IndicatorForm = ({ editingIndicator, onSuccess }: IndicatorFormProps) => {
         throw new Error("El nombre y el proceso son obligatorios.");
       }
 
-      // Encontramos el objeto proceso para obtener su nombre también
-      const selectedProcess = processes.find(p => p.id.toString() === form.process_id);
+      const selectedProcess = processes.find((p: any) => p.id.toString() === form.process_id);
       const processName = selectedProcess ? selectedProcess.name : "";
 
       const payload = { 
-        ...form, 
-        // Convertimos a número para la BD
+        name: form.name,
         process_id: parseInt(form.process_id), 
-        // Guardamos TAMBIÉN el nombre para que no se rompa tu vista actual
         process: processName,
+        objective: form.objective,
         target_value: parseFloat(form.target_value) || 0,
-        current_value: parseFloat(form.current_value) || 0,
+        unit: form.unit,
+        input_1: form.input_1,
+        input_2: form.input_2,
+        frequency: form.frequency,
+        responsible: form.responsible,
+        calculation_info: form.calculation_info,
+        formula: form.formula,
         last_update: new Date().toISOString().split('T')[0]
       };
 
@@ -67,13 +71,14 @@ const IndicatorForm = ({ editingIndicator, onSuccess }: IndicatorFormProps) => {
       } else {
         const { error } = await supabase.from("indicators" as any).insert([{ 
           ...payload, 
-          period_start_date: new Date().toISOString().split('T')[0] 
+          current_value: 0 
         }]);
         if (error) throw error;
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["indicators"] });
+      queryClient.invalidateQueries({ queryKey: ["indicators-with-history"] });
       toast.success("Indicador guardado correctamente");
       onSuccess();
     },
@@ -83,7 +88,7 @@ const IndicatorForm = ({ editingIndicator, onSuccess }: IndicatorFormProps) => {
   });
 
   return (
-    <div className="space-y-4 py-4">
+    <div className="space-y-5 px-1 pt-2 pb-8">
       <div className="space-y-2">
         <Label>Nombre del Indicador <span className="text-destructive">*</span></Label>
         <Input 
@@ -102,10 +107,7 @@ const IndicatorForm = ({ editingIndicator, onSuccess }: IndicatorFormProps) => {
           <SelectTrigger><SelectValue placeholder="Seleccionar proceso" /></SelectTrigger>
           <SelectContent>
             {processes.map((p: any) => (
-              // AHORA: Usamos el ID como valor, no el nombre
-              <SelectItem key={p.id} value={p.id.toString()}>
-                {p.name}
-              </SelectItem>
+              <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -126,7 +128,7 @@ const IndicatorForm = ({ editingIndicator, onSuccess }: IndicatorFormProps) => {
         <Textarea rows={2} value={form.calculation_info} onChange={(e) => setForm({...form, calculation_info: e.target.value})} placeholder="Detalle de datos necesarios" />
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="space-y-2">
           <Label>Meta</Label>
           <Input type="number" value={form.target_value} onChange={(e) => setForm({...form, target_value: e.target.value})} placeholder="90" />
@@ -149,9 +151,9 @@ const IndicatorForm = ({ editingIndicator, onSuccess }: IndicatorFormProps) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2"><Label>Entrada 1 (A)</Label><Input value={form.input_1} onChange={(e) => setForm({...form, input_1: e.target.value})} /></div>
-        <div className="space-y-2"><Label>Entrada 2 (B)</Label><Input value={form.input_2} onChange={(e) => setForm({...form, input_2: e.target.value})} /></div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-2"><Label>Entrada 1 (A)</Label><Input value={form.input_1} onChange={(e) => setForm({...form, input_1: e.target.value})} placeholder="Nombre del valor A" /></div>
+        <div className="space-y-2"><Label>Entrada 2 (B)</Label><Input value={form.input_2} onChange={(e) => setForm({...form, input_2: e.target.value})} placeholder="Nombre del valor B" /></div>
       </div>
 
       <div className="space-y-2">
@@ -159,7 +161,7 @@ const IndicatorForm = ({ editingIndicator, onSuccess }: IndicatorFormProps) => {
         <Input value={form.formula} onChange={(e) => setForm({...form, formula: e.target.value})} placeholder="Ej: (A/B)*100" />
       </div>
 
-      <div className="flex justify-end gap-3 mt-6">
+      <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-border">
         <Button variant="outline" onClick={onSuccess}>Cancelar</Button>
         <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
           {saveMutation.isPending ? "Guardando..." : "Confirmar"}
