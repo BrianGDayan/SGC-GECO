@@ -10,20 +10,19 @@ import IndicatorProgress from "@/components/dashboard/IndicatorProgress";
 import QuickActions from "@/components/dashboard/QuickActions";
 import UpcomingAudits from "@/components/dashboard/UpcomingAudits";
 
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import DocumentForm from "@/components/forms/DocumentForm";
 import IndicatorMeasurementForm from "@/components/forms/IndicatorMeasurementForm";
 import ProcessForm from "@/components/forms/ProcessForm";
 import FindingForm from "@/components/forms/FindingForm";
 
 const Index = () => {
-  const { isAdmin, isEditor } = useAuth();
+  const { isAdmin, isEditor, loading: authLoading } = useAuth();
   const [activeModal, setActiveModal] = useState<"upload_doc" | "record_indicator" | "new_finding" | "create_process" | null>(null);
 
   const { data: stats, isLoading: isLoadingStats } = useQuery({
     queryKey: ["dashboard-stats"],
-   queryFn: async () => {
-      // Forzamos 'as any' en las respuestas para saltar el error de inferencia de TS
+    queryFn: async () => {
       const [docsRes, indsRes, auditsRes, findRes]: any[] = await Promise.all([
         supabase.from("documents" as any).select("id"),
         supabase.from("indicators" as any).select("id, target_value"),
@@ -31,7 +30,6 @@ const Index = () => {
         supabase.from("findings" as any).select("status, type")
       ]);
 
-      // Hacemos lo mismo con las mediciones
       const { data: measurements }: any = await supabase
         .from("indicator_measurements" as any)
         .select("indicator_id, value")
@@ -40,11 +38,9 @@ const Index = () => {
       const indsData = indsRes.data || [];
       const measData = measurements || [];
 
-      // Cálculo de indicadores que cumplen la meta
       const indsInMeta = indsData.filter((indicator: any) => {
         const lastMeas = measData.find((m: any) => m.indicator_id === indicator.id);
         if (!lastMeas) return false;
-        // Comparamos valores numéricos
         return Number(lastMeas.value) >= Number(indicator.target_value);
       }).length;
 
@@ -79,18 +75,32 @@ const Index = () => {
     }
   });
 
+  // LÓGICA VERIFICADA: Trae auditorías con fecha futura y que NO estén terminadas
   const { data: upcomingAudits = [], isLoading: isLoadingAudits } = useQuery({
     queryKey: ["upcoming-audits"],
     queryFn: async () => {
-      const { data } = await supabase.from("audits").select("*").gt("scheduled_date", new Date().toISOString()).order("scheduled_date", { ascending: true }).limit(5);
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from("audits")
+        .select("*")
+        .gte("scheduled_date", now)
+        .not("status", "in", '("finalizada","completada","cerrada")')
+        .order("scheduled_date", { ascending: true })
+        .limit(5);
+      
+      if (error) throw error;
       return (data || []) as any[];
     }
   });
 
-  if (isLoadingStats || isLoadingInds || isLoadingAudits) {
+  const isPageLoading = isLoadingStats || isLoadingInds || isLoadingAudits || authLoading;
+
+  if (isPageLoading) {
     return (
       <MainLayout title="Dashboard">
-        <div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+        <div className="flex h-96 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
       </MainLayout>
     );
   }
@@ -98,6 +108,7 @@ const Index = () => {
   return (
     <MainLayout title="Dashboard" subtitle="Sistema de Gestión de Calidad ISO 9001:2015">
       <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in">
+        {/* VARIANTS CORREGIDOS PARA TYPESCRIPT */}
         <StatCard title="Documentos Activos" value={stats?.docsTotal || 0} icon={FileText} variant="primary" />
         <StatCard title="Indicadores" value={`${stats?.indsInMeta}/${stats?.indsTotal}`} icon={BarChart3} variant="secondary" />
         <StatCard title="Auditorías" value={`${stats?.auditsDone}/${stats?.auditsTotal}`} icon={CheckCircle} variant="accent" />
@@ -105,7 +116,9 @@ const Index = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2"><RecentDocuments documents={recentDocs} /></div>
+        <div className="lg:col-span-2">
+          <RecentDocuments documents={recentDocs} />
+        </div>
         <div className="space-y-6">
           {(isAdmin || isEditor) && (
             <QuickActions 

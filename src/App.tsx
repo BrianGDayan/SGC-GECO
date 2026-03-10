@@ -13,6 +13,7 @@ import Usuarios from "./pages/Usuarios";
 import FindingDetail from "./pages/FindingDetail";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
+import ProcessDetail from "./pages/ProcessDetail";
 
 const queryClient = new QueryClient();
 
@@ -29,6 +30,7 @@ const App = () => (
             <Route path="/documentos" element={<Documentos />} />
             <Route path="/indicadores" element={<Indicadores />} />
             <Route path="/procesos" element={<Procesos />} />
+            <Route path="/procesos/:id" element={<ProcessDetail />} />
             <Route path="/auditorias" element={<Auditorias />} />
             <Route path="/hallazgos/:id" element={<FindingDetail />} />
             <Route path="/usuarios" element={<Usuarios />} />

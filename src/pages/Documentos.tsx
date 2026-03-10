@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-// IMPORTAMOS EL HOOK DE ROLES
 import { useAuth } from "@/hooks/useAuth"; 
 import { 
   FileText, Upload, Search, Download, Eye, Edit, Trash2, FolderOpen, Loader2, AlertTriangle, Filter, FileUp, ClipboardList
@@ -29,24 +28,21 @@ const categories = [
 ];
 
 const statusStyles = {
-  vigente: "bg-success/10 text-success border-success/20",
-  "en revision": "bg-warning/10 text-warning border-warning/20",
-  "en aprobacion": "bg-primary/10 text-primary border-primary/20",
-  obsoleto: "bg-muted text-muted-foreground border-border",
+  vigente: "bg-success/10 text-success border-success/20 hover:bg-success/20 transition-colors cursor-default",
+  "en revision": "bg-warning/10 text-warning border-warning/20 hover:bg-warning/20 transition-colors cursor-default",
+  "en aprobacion": "bg-primary/10 text-primary border-primary/20 hover:bg-primary/20 transition-colors cursor-default",
+  obsoleto: "bg-muted text-muted-foreground border-border hover:bg-muted/80 transition-colors cursor-default",
 };
 
 const Documentos = () => {
   const queryClient = useQueryClient();
-  // TRAEMOS LOS ROLES Y PERMISOS
   const { isAdmin, isEditor, canManageProcess } = useAuth();
 
-  // Filtros
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
-  // Estados de Modales
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -118,7 +114,7 @@ const Documentos = () => {
 
   return (
     <MainLayout title="Documentos" subtitle="Gestión documental del Sistema de Calidad">
-      <div className="flex gap-6">
+      <div className="flex gap-6 animate-fade-in">
         <aside className="w-64 shrink-0">
           <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
             <h3 className="mb-4 font-semibold text-foreground">Categorías</h3>
@@ -138,7 +134,7 @@ const Documentos = () => {
         </aside>
 
         <div className="flex-1">
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-4 animate-slide-up">
             <div className="flex items-center gap-3">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -153,15 +149,14 @@ const Documentos = () => {
               </Select>
             </div>
             
-            {/* BOTÓN GENERAL PROTEGIDO: Solo Admins o Jefes de Área pueden subir nuevos documentos */}
             {(isAdmin || isEditor) && (
-              <Button onClick={() => openModal()} className="gap-2 bg-primary hover:bg-primary-dark">
+              <Button onClick={() => openModal()} className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm transition-all hover:shadow-md">
                 <Upload className="h-4 w-4" /> Subir Documento
               </Button>
             )}
           </div>
 
-          <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden animate-slide-up">
             <table className="w-full">
               <thead className="border-b bg-muted/50 text-muted-foreground">
                 <tr>
@@ -177,8 +172,6 @@ const Documentos = () => {
               </thead>
               <tbody className="divide-y divide-border">
                 {filteredDocs.map((doc: any) => {
-                  // MAGIA DE PERMISOS DE FILA:
-                  // Evaluamos si el usuario actual tiene permiso para editar ESTE documento en particular
                   const hasProcessPermissions = canManageProcess(doc.manager_ids);
 
                   return (
@@ -205,7 +198,6 @@ const Documentos = () => {
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end gap-1">
                           
-                          {/* BOTONES EXCLUSIVOS PARA ADMINISTRADORES O DUEÑOS DEL PROCESO */}
                           {hasProcessPermissions && (
                             <>
                               {doc.category === 'registro' && doc.status === 'vigente' && (
@@ -222,11 +214,9 @@ const Documentos = () => {
                             </>
                           )}
 
-                          {/* BOTONES PÚBLICOS (Ver y Descargar) */}
                           <Button variant="ghost" size="icon" className="h-8 w-8" asChild><a href={doc.file_url} target="_blank" rel="noreferrer" title="Ver documento"><Eye className="h-4 w-4" /></a></Button>
                           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDownload(doc.file_url, doc.file_name)} title="Descargar documento"><Download className="h-4 w-4" /></Button>
                           
-                          {/* MÁS BOTONES EXCLUSIVOS */}
                           {hasProcessPermissions && (
                             <>
                               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openModal(doc)} title="Modificar documento"><Edit className="h-4 w-4" /></Button>
@@ -268,7 +258,6 @@ const Documentos = () => {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL DE REGISTROS LLENOS */}
       {recordDoc && (
         <DocumentRecordsModal 
           document={recordDoc} 

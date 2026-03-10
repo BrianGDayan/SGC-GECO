@@ -45,7 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (data) {
         setUserData(data as unknown as SgcUser);
-        
+
         supabase
           .from("users" as any)
           .update({ last_access: new Date().toISOString() })
@@ -58,6 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error("Error al obtener datos:", error);
+    } finally {
+      setLoading(false); // ✅ AQUÍ
     }
   };
 
@@ -65,9 +67,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
-      if (session?.user) fetchUserData(session.user.id);
-      else setUserData(null);
-      setLoading(false);
+
+      if (session?.user) {
+        fetchUserData(session.user.id);
+      } else {
+        setUserData(null);
+        setLoading(false);
+      }
     });
 
     supabase.auth.getSession().then(({ data: { session } }) => {

@@ -156,7 +156,7 @@ export default function DocumentRecordsModal({ document, isOpen, onClose }: Prop
                         size="icon" 
                         className="h-7 w-7 hover:bg-secondary hover:text-white transition-colors" 
                         asChild 
-                        title="Ver Documento"
+                        title="Ver Registro"
                       >
                         <a href={rec.file_url} target="_blank" rel="noreferrer"><Eye className="h-3.5 w-3.5" /></a>
                       </Button>
@@ -167,7 +167,7 @@ export default function DocumentRecordsModal({ document, isOpen, onClose }: Prop
                         size="icon" 
                         className="h-7 w-7 hover:bg-secondary hover:text-white transition-colors" 
                         asChild
-                        title="Descargar"
+                        title="Descargar Registro"
                       >
                         <a href={rec.file_url} target="_blank" rel="noreferrer"><Download className="h-3.5 w-3.5" /></a>
                       </Button>
@@ -178,7 +178,7 @@ export default function DocumentRecordsModal({ document, isOpen, onClose }: Prop
                         size="icon" 
                         className="h-7 w-7 text-destructive hover:bg-destructive hover:text-white transition-colors" 
                         onClick={() => handleDelete(rec.id)}
-                        title="Eliminar"
+                        title="Eliminar Registro"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
